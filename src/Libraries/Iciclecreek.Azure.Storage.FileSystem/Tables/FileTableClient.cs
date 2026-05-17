@@ -94,8 +94,8 @@ public class FileTableClient : TableClient
     /// <inheritdoc/>
     public override async Task<Response> AddEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
     {
-        await _store.AddEntityAsync(entity, cancellationToken).ConfigureAwait(false);
-        return StubResponse.NoContent();
+        var etag = await _store.AddEntityAsync(entity, cancellationToken).ConfigureAwait(false);
+        return StubResponse.NoContent(etag);
     }
 
     /// <inheritdoc/>
@@ -130,8 +130,8 @@ public class FileTableClient : TableClient
     /// <inheritdoc/>
     public override async Task<Response> UpsertEntityAsync<T>(T entity, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
     {
-        await _store.UpsertEntityAsync(entity, mode, cancellationToken).ConfigureAwait(false);
-        return StubResponse.NoContent();
+        var etag = await _store.UpsertEntityAsync(entity, mode, cancellationToken).ConfigureAwait(false);
+        return StubResponse.NoContent(etag);
     }
 
     /// <inheritdoc/>
@@ -141,8 +141,8 @@ public class FileTableClient : TableClient
     /// <inheritdoc/>
     public override async Task<Response> UpdateEntityAsync<T>(T entity, ETag ifMatch, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
     {
-        await _store.UpdateEntityAsync(entity, ifMatch, mode, cancellationToken).ConfigureAwait(false);
-        return StubResponse.NoContent();
+        var etag = await _store.UpdateEntityAsync(entity, ifMatch, mode, cancellationToken).ConfigureAwait(false);
+        return StubResponse.NoContent(etag);
     }
 
     /// <inheritdoc/>
@@ -239,28 +239,29 @@ public class FileTableClient : TableClient
                 var a = actions[i];
                 try
                 {
+                    string? txEtag = null;
                     switch (a.ActionType)
                     {
                         case TableTransactionActionType.Add:
-                            await _store.AddEntityAsync(a.Entity, cancellationToken).ConfigureAwait(false);
+                            txEtag = await _store.AddEntityAsync(a.Entity, cancellationToken).ConfigureAwait(false);
                             break;
                         case TableTransactionActionType.UpdateMerge:
-                            await _store.UpdateEntityAsync(a.Entity, a.ETag, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
+                            txEtag = await _store.UpdateEntityAsync(a.Entity, a.ETag, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
                             break;
                         case TableTransactionActionType.UpdateReplace:
-                            await _store.UpdateEntityAsync(a.Entity, a.ETag, TableUpdateMode.Replace, cancellationToken).ConfigureAwait(false);
+                            txEtag = await _store.UpdateEntityAsync(a.Entity, a.ETag, TableUpdateMode.Replace, cancellationToken).ConfigureAwait(false);
                             break;
                         case TableTransactionActionType.UpsertMerge:
-                            await _store.UpsertEntityAsync(a.Entity, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
+                            txEtag = await _store.UpsertEntityAsync(a.Entity, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
                             break;
                         case TableTransactionActionType.UpsertReplace:
-                            await _store.UpsertEntityAsync(a.Entity, TableUpdateMode.Replace, cancellationToken).ConfigureAwait(false);
+                            txEtag = await _store.UpsertEntityAsync(a.Entity, TableUpdateMode.Replace, cancellationToken).ConfigureAwait(false);
                             break;
                         case TableTransactionActionType.Delete:
                             await _store.DeleteEntityAsync(a.Entity.PartitionKey, a.Entity.RowKey, a.ETag == default ? ETag.All : a.ETag, cancellationToken).ConfigureAwait(false);
                             break;
                     }
-                    responses.Add(StubResponse.NoContent());
+                    responses.Add(txEtag != null ? StubResponse.NoContent(txEtag) : StubResponse.NoContent());
                 }
                 catch (RequestFailedException ex)
                 {

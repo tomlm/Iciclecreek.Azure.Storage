@@ -63,4 +63,13 @@ internal sealed class StubResponse : Response
     public static Response Created() => new StubResponse(201, "Created");
     public static Response NoContent() => new StubResponse(204, "No Content");
     public static Response Accepted() => new StubResponse(202, "Accepted");
+
+    public static Response NoContent(string etag)
+    {
+        var response = new StubResponse(204, "No Content");
+        // ETags in HTTP headers must be quoted per RFC 7232
+        var quoted = etag.StartsWith('"') ? etag : $"\"{etag}\"";
+        response.AddHeader("ETag", quoted);
+        return response;
+    }
 }

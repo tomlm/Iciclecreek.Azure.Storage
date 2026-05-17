@@ -39,7 +39,7 @@ internal class BlobEntry
     // Lock for compound ETag check-then-write
     public readonly object Lock = new();
 
-    public static string NewETag() => $"\"0x{Guid.NewGuid():N}\"";
+    public static string NewETag() => $"0x{Guid.NewGuid():N}";
 
     public void Touch()
     {

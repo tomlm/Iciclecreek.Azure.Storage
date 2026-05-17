@@ -135,7 +135,7 @@ public class SqliteTableClient : TableClient
             throw new RequestFailedException(409, "Entity already exists.", "EntityAlreadyExists", null);
         }
 
-        return StubResponse.NoContent();
+        return StubResponse.NoContent(etag);
     }
 
     /// <inheritdoc/>
@@ -216,7 +216,7 @@ public class SqliteTableClient : TableClient
             cmd.ExecuteNonQuery();
         }
 
-        return StubResponse.NoContent();
+        return StubResponse.NoContent(etag);
     }
 
     /// <inheritdoc/>
@@ -260,7 +260,7 @@ public class SqliteTableClient : TableClient
         cmd.Parameters.AddWithValue("@props", props);
         cmd.ExecuteNonQuery();
 
-        return StubResponse.NoContent();
+        return StubResponse.NoContent(etag);
     }
 
     /// <inheritdoc/>
@@ -372,28 +372,29 @@ public class SqliteTableClient : TableClient
         {
             foreach (var a in actions)
             {
+                string? txEtag = null;
                 switch (a.ActionType)
                 {
                     case TableTransactionActionType.Add:
-                        AddEntityInTransaction(conn, tx, a.Entity);
+                        txEtag = AddEntityInTransaction(conn, tx, a.Entity);
                         break;
                     case TableTransactionActionType.UpdateMerge:
-                        UpdateEntityInTransaction(conn, tx, a.Entity, a.ETag, TableUpdateMode.Merge);
+                        txEtag = UpdateEntityInTransaction(conn, tx, a.Entity, a.ETag, TableUpdateMode.Merge);
                         break;
                     case TableTransactionActionType.UpdateReplace:
-                        UpdateEntityInTransaction(conn, tx, a.Entity, a.ETag, TableUpdateMode.Replace);
+                        txEtag = UpdateEntityInTransaction(conn, tx, a.Entity, a.ETag, TableUpdateMode.Replace);
                         break;
                     case TableTransactionActionType.UpsertMerge:
-                        UpsertEntityInTransaction(conn, tx, a.Entity, TableUpdateMode.Merge);
+                        txEtag = UpsertEntityInTransaction(conn, tx, a.Entity, TableUpdateMode.Merge);
                         break;
                     case TableTransactionActionType.UpsertReplace:
-                        UpsertEntityInTransaction(conn, tx, a.Entity, TableUpdateMode.Replace);
+                        txEtag = UpsertEntityInTransaction(conn, tx, a.Entity, TableUpdateMode.Replace);
                         break;
                     case TableTransactionActionType.Delete:
                         DeleteEntityInTransaction(conn, tx, a.Entity.PartitionKey, a.Entity.RowKey, a.ETag == default ? ETag.All : a.ETag);
                         break;
                 }
-                responses.Add(StubResponse.NoContent());
+                responses.Add(txEtag != null ? StubResponse.NoContent(txEtag) : StubResponse.NoContent());
             }
 
             tx.Commit();
@@ -419,7 +420,7 @@ public class SqliteTableClient : TableClient
 
     // ---- Transaction Helpers ----
 
-    private void AddEntityInTransaction(SqliteConnection conn, SqliteTransaction tx, ITableEntity entity)
+    private string AddEntityInTransaction(SqliteConnection conn, SqliteTransaction tx, ITableEntity entity)
     {
         var etag = NewETag();
         var timestamp = DateTimeOffset.UtcNow;
@@ -443,9 +444,10 @@ public class SqliteTableClient : TableClient
         {
             throw new RequestFailedException(409, "Entity already exists.", "EntityAlreadyExists", null);
         }
+        return etag;
     }
 
-    private void UpdateEntityInTransaction(SqliteConnection conn, SqliteTransaction tx, ITableEntity entity, ETag ifMatch, TableUpdateMode mode)
+    private string UpdateEntityInTransaction(SqliteConnection conn, SqliteTransaction tx, ITableEntity entity, ETag ifMatch, TableUpdateMode mode)
     {
         var existing = ReadEntity(conn, entity.PartitionKey, entity.RowKey, tx);
         if (existing == null)
@@ -471,9 +473,10 @@ public class SqliteTableClient : TableClient
         cmd.Parameters.AddWithValue("@ts", timestamp.ToString("O"));
         cmd.Parameters.AddWithValue("@props", props);
         cmd.ExecuteNonQuery();
+        return etag;
     }
 
-    private void UpsertEntityInTransaction(SqliteConnection conn, SqliteTransaction tx, ITableEntity entity, TableUpdateMode mode)
+    private string UpsertEntityInTransaction(SqliteConnection conn, SqliteTransaction tx, ITableEntity entity, TableUpdateMode mode)
     {
         var etag = NewETag();
         var timestamp = DateTimeOffset.UtcNow;
@@ -509,6 +512,7 @@ public class SqliteTableClient : TableClient
             cmd.Parameters.AddWithValue("@props", props);
             cmd.ExecuteNonQuery();
         }
+        return etag;
     }
 
     private void DeleteEntityInTransaction(SqliteConnection conn, SqliteTransaction tx, string partitionKey, string rowKey, ETag ifMatch)
@@ -579,7 +583,7 @@ public class SqliteTableClient : TableClient
         return entities;
     }
 
-    private static string NewETag() => $"W/\"{Guid.NewGuid():N}\"";
+    private static string NewETag() => $"0x{Guid.NewGuid():N}";
 
     private static string SerializeProperties(ITableEntity entity)
     {

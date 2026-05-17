@@ -89,7 +89,7 @@ public class MemoryTableClient : TableClient
         if (!table.Entities.TryAdd(key, entry))
             throw new RequestFailedException(409, "Entity already exists.", "EntityAlreadyExists", null);
 
-        return StubResponse.NoContent();
+        return StubResponse.NoContent(entry.ETag);
     }
 
     /// <inheritdoc/>
@@ -135,11 +135,12 @@ public class MemoryTableClient : TableClient
     {
         var table = GetTableStore();
         var key = TableStore.EntityKey(entity.PartitionKey, entity.RowKey);
+        EntityEntry resultEntry;
 
         if (mode == TableUpdateMode.Replace)
         {
             var props = SerializeProperties(entity);
-            table.Entities.AddOrUpdate(key,
+            resultEntry = table.Entities.AddOrUpdate(key,
                 _ => new EntityEntry { PropertiesJson = props },
                 (_, existing) =>
                 {
@@ -154,7 +155,7 @@ public class MemoryTableClient : TableClient
         else
         {
             // Merge mode
-            table.Entities.AddOrUpdate(key,
+            resultEntry = table.Entities.AddOrUpdate(key,
                 _ => new EntityEntry { PropertiesJson = SerializeProperties(entity) },
                 (_, existing) =>
                 {
@@ -169,7 +170,7 @@ public class MemoryTableClient : TableClient
                 });
         }
 
-        return StubResponse.NoContent();
+        return StubResponse.NoContent(resultEntry.ETag);
     }
 
     /// <inheritdoc/>
@@ -205,7 +206,7 @@ public class MemoryTableClient : TableClient
             entry.Touch();
         }
 
-        return StubResponse.NoContent();
+        return StubResponse.NoContent(entry.ETag);
     }
 
     /// <inheritdoc/>
@@ -353,7 +354,12 @@ public class MemoryTableClient : TableClient
                         DeleteEntityInTransaction(table, a.Entity.PartitionKey, a.Entity.RowKey, a.ETag == default ? ETag.All : a.ETag);
                         break;
                 }
-                responses.Add(StubResponse.NoContent());
+                // Include ETag in response for non-delete operations
+                var txKey = TableStore.EntityKey(a.Entity.PartitionKey, a.Entity.RowKey);
+                if (a.ActionType != TableTransactionActionType.Delete && table.Entities.TryGetValue(txKey, out var txEntry))
+                    responses.Add(StubResponse.NoContent(txEntry.ETag));
+                else
+                    responses.Add(StubResponse.NoContent());
             }
         }
         catch (RequestFailedException ex)
