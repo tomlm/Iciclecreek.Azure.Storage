@@ -18,6 +18,33 @@ public abstract class TableETagTestsBase
     [TearDown]
     public void TearDown() => _fixture.Dispose();
 
+    // ── ETag format: response header → ETag.Parse → unquoted value ──
+
+    [Test]
+    public void ETag_Format_Is_RFC7232_Compliant()
+    {
+        var client = _fixture.CreateTableClient("etagformat");
+        client.CreateIfNotExists();
+
+        var entity = new TableEntity("pk", "rk1") { ["Name"] = "Test" };
+        var response = client.AddEntity(entity);
+
+        // response.Headers.ETag calls ETag.Parse which strips quotes
+        var etag = response.Headers.ETag;
+        Assert.That(etag, Is.Not.Null);
+        var etagStr = etag!.Value.ToString();
+
+        // ETag value should not contain surrounding quotes (ETag.Parse strips them)
+        Assert.That(etagStr, Does.Not.StartWith("\""),
+            "ETag.ToString() should not contain surrounding quotes — ETag.Parse strips them from the HTTP header");
+        Assert.That(etagStr, Is.Not.Empty);
+
+        // GetEntity should return the same ETag value
+        var getResp = client.GetEntity<TableEntity>("pk", "rk1");
+        Assert.That(getResp.Value.ETag.ToString(), Is.EqualTo(etagStr),
+            "GetEntity ETag should match AddEntity response ETag");
+    }
+
     // ── AddEntity returns ETag ──
 
     [Test]
