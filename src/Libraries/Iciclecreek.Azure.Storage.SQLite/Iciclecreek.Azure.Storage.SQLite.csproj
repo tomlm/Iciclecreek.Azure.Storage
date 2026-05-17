@@ -9,8 +9,8 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Version>1.0.1</Version>
-    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <Version>1.0.2</Version>
+    <AssemblyVersion>1.0.2.0</AssemblyVersion>
     <Description>SQLite-backed drop-in replacement for Azure.Data.Tables, Azure.Storage.Blobs, and Azure.Storage.Queues SDK clients.</Description>
     <Company>Iciclecreek</Company>
     <Authors>Tom Laird-McConnell</Authors>
