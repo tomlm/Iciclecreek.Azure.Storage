@@ -15,9 +15,9 @@ public class FileQueueServiceClient : QueueServiceClient
     private readonly string _accountName;
     private readonly Uri _queueServiceUri;
 
-    public FileQueueServiceClient(string queuesRootPath, FileStorageOptions? options = null) : base()
+    public FileQueueServiceClient(string rootPath, FileStorageOptions? options = null) : base()
     {
-        QueuesRootPath = Path.GetFullPath(queuesRootPath);
+        QueuesRootPath = Path.Combine(Path.GetFullPath(rootPath), "queues");
         Directory.CreateDirectory(QueuesRootPath);
         Options = options ?? new FileStorageOptions();
         _accountName = string.Empty;

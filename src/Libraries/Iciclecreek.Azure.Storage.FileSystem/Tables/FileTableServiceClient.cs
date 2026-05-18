@@ -15,9 +15,9 @@ public class FileTableServiceClient : TableServiceClient
     private readonly string _accountName;
     private readonly Uri _tableServiceUri;
 
-    public FileTableServiceClient(string tablesRootPath, FileStorageOptions? options = null) : base()
+    public FileTableServiceClient(string rootPath, FileStorageOptions? options = null) : base()
     {
-        TablesRootPath = Path.GetFullPath(tablesRootPath);
+        TablesRootPath = Path.Combine(Path.GetFullPath(rootPath), "tables");
         Directory.CreateDirectory(TablesRootPath);
         Options = options ?? new FileStorageOptions();
         _accountName = string.Empty;

@@ -5,7 +5,7 @@
 # Iciclecreek.Azure.Storage.SQLite
 A **SQLite-backed drop-in replacement** for `Azure.Storage.Blobs`, `Azure.Data.Tables`, and `Azure.Storage.Queues` clients. Use the same Azure SDK types in tests and local development without Azurite or a live Azure account.
 
-Each storage account is a single `.db` file -- portable, atomic, and easy to manage.
+All data is stored in a single `.db` file -- portable, atomic, and easy to manage.
 
 ## Installation
 
@@ -15,22 +15,13 @@ dotnet add package Iciclecreek.Azure.Storage.SQLite
 
 ## Usage
 
-### Create a provider and account
-
-```csharp
-using Iciclecreek.Azure.Storage.SQLite;
-using Iciclecreek.Azure.Storage.SQLite.Blobs;
-using Iciclecreek.Azure.Storage.SQLite.Tables;
-using Iciclecreek.Azure.Storage.SQLite.Queues;
-
-var provider = new SqliteStorageProvider(@"C:\temp\my-storage");
-var account  = provider.AddAccount("devaccount"); // creates devaccount.db
-```
-
 ### Blobs
 
 ```csharp
-BlobContainerClient container = SqliteBlobContainerClient.FromAccount(account, "my-container");
+using Iciclecreek.Azure.Storage.SQLite.Blobs;
+
+var blobService = new SqliteBlobServiceClient(@"C:\temp\storage.db");
+BlobContainerClient container = blobService.GetBlobContainerClient("my-container");
 await container.CreateIfNotExistsAsync();
 
 BlobClient blob = container.GetBlobClient("hello.txt");
@@ -43,7 +34,10 @@ Console.WriteLine(result.Content.ToString()); // "Hello, World!"
 ### Tables
 
 ```csharp
-TableClient table = SqliteTableClient.FromAccount(account, "people");
+using Iciclecreek.Azure.Storage.SQLite.Tables;
+
+var tableService = new SqliteTableServiceClient(@"C:\temp\storage.db");
+TableClient table = tableService.GetTableClient("people");
 await table.CreateIfNotExistsAsync();
 
 await table.AddEntityAsync(new TableEntity("users", "alice") { ["Name"] = "Alice" });
@@ -53,7 +47,10 @@ var entity = (await table.GetEntityAsync<TableEntity>("users", "alice")).Value;
 ### Queues
 
 ```csharp
-QueueClient queue = SqliteQueueClient.FromAccount(account, "tasks");
+using Iciclecreek.Azure.Storage.SQLite.Queues;
+
+var queueService = new SqliteQueueServiceClient(@"C:\temp\storage.db");
+QueueClient queue = queueService.GetQueueClient("tasks");
 queue.Create();
 
 queue.SendMessage("do the thing");
@@ -67,14 +64,12 @@ Every `Sqlite*` client inherits from its Azure SDK base type:
 
 ```csharp
 // Production
-services.AddSingleton<BlobContainerClient>(
-    new BlobContainerClient(connectionString, "images"));
+services.AddSingleton<BlobServiceClient>(
+    new BlobServiceClient(connectionString));
 
 // Test
-var provider = new SqliteStorageProvider(testDir);
-var account  = provider.AddAccount("test");
-services.AddSingleton<BlobContainerClient>(
-    SqliteBlobContainerClient.FromAccount(account, "images"));
+services.AddSingleton<BlobServiceClient>(
+    new SqliteBlobServiceClient("test.db"));
 ```
 
 ## Related Packages

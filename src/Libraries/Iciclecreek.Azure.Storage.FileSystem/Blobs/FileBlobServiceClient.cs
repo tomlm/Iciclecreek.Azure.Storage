@@ -13,9 +13,9 @@ public class FileBlobServiceClient : BlobServiceClient
     private readonly string _accountName;
     private readonly Uri _blobServiceUri;
 
-    public FileBlobServiceClient(string blobsRootPath, FileStorageOptions? options = null) : base()
+    public FileBlobServiceClient(string rootPath, FileStorageOptions? options = null) : base()
     {
-        BlobsRootPath = Path.GetFullPath(blobsRootPath);
+        BlobsRootPath = Path.Combine(Path.GetFullPath(rootPath), "blobs");
         Directory.CreateDirectory(BlobsRootPath);
         Options = options ?? new FileStorageOptions();
         _accountName = string.Empty;

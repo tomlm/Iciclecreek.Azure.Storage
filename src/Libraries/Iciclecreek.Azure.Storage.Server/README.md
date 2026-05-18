@@ -17,21 +17,18 @@ dotnet add package Iciclecreek.Azure.Storage.Server
 
 ```csharp
 using Iciclecreek.Azure.Storage.Server;
-using Iciclecreek.Azure.Storage.FileSystem;
 using Iciclecreek.Azure.Storage.FileSystem.Blobs;
 using Iciclecreek.Azure.Storage.FileSystem.Tables;
 using Iciclecreek.Azure.Storage.FileSystem.Queues;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Set up the storage provider
-var provider = new FileStorageProvider(@"C:\temp\my-storage");
-var account  = provider.AddAccount("devaccount");
+var storagePath = @"C:\temp\my-storage";
 
 // Register Azure SDK clients in DI
-builder.Services.AddSingleton(FileBlobServiceClient.FromAccount(account));
-builder.Services.AddSingleton(FileTableServiceClient.FromAccount(account));
-builder.Services.AddSingleton(FileQueueServiceClient.FromAccount(account));
+builder.Services.AddSingleton<BlobServiceClient>(new FileBlobServiceClient(storagePath));
+builder.Services.AddSingleton<TableServiceClient>(new FileTableServiceClient(storagePath));
+builder.Services.AddSingleton<QueueServiceClient>(new FileQueueServiceClient(storagePath));
 
 // Add the storage server controllers
 builder.Services.AddStorageServer();
@@ -47,11 +44,10 @@ The server works with any Azure SDK client implementation -- FileSystem, SQLite,
 
 ```csharp
 // SQLite provider
-var provider = new SqliteStorageProvider(@"C:\temp\my-storage");
-var account  = provider.AddAccount("devaccount");
-builder.Services.AddSingleton(SqliteBlobServiceClient.FromAccount(account));
-builder.Services.AddSingleton(SqliteTableServiceClient.FromAccount(account));
-builder.Services.AddSingleton(SqliteQueueServiceClient.FromAccount(account));
+var dbPath = @"C:\temp\storage.db";
+builder.Services.AddSingleton<BlobServiceClient>(new SqliteBlobServiceClient(dbPath));
+builder.Services.AddSingleton<TableServiceClient>(new SqliteTableServiceClient(dbPath));
+builder.Services.AddSingleton<QueueServiceClient>(new SqliteQueueServiceClient(dbPath));
 ```
 
 ## Related Packages

@@ -12,19 +12,16 @@ public sealed class TempRoot : IDisposable
             System.IO.Path.GetTempPath(),
             "fs-tests",
             Guid.NewGuid().ToString("N"));
-        BlobsPath = System.IO.Path.Combine(Path, "blobs");
-        TablesPath = System.IO.Path.Combine(Path, "tables");
-        QueuesPath = System.IO.Path.Combine(Path, "queues");
         Directory.CreateDirectory(Path);
-        BlobService = new FileBlobServiceClient(BlobsPath);
-        TableService = new FileTableServiceClient(TablesPath);
-        QueueService = new FileQueueServiceClient(QueuesPath);
+        BlobService = new FileBlobServiceClient(Path);
+        TableService = new FileTableServiceClient(Path);
+        QueueService = new FileQueueServiceClient(Path);
     }
 
     public string Path { get; }
-    public string BlobsPath { get; }
-    public string TablesPath { get; }
-    public string QueuesPath { get; }
+    public string BlobsPath => BlobService.BlobsRootPath;
+    public string TablesPath => TableService.TablesRootPath;
+    public string QueuesPath => QueueService.QueuesRootPath;
     public FileBlobServiceClient BlobService { get; }
     public FileTableServiceClient TableService { get; }
     public FileQueueServiceClient QueueService { get; }

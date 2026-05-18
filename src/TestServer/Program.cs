@@ -13,9 +13,9 @@ var storagePath = builder.Configuration["StoragePath"]
     ?? Path.Combine(Path.GetTempPath(), "__storage_data");
 
 // ── Register Azure SDK clients backed by the file system ────────────────
-builder.Services.AddSingleton<BlobServiceClient>(new FileBlobServiceClient(Path.Combine(storagePath, "blobs")));
-builder.Services.AddSingleton<TableServiceClient>(new FileTableServiceClient(Path.Combine(storagePath, "tables")));
-builder.Services.AddSingleton<QueueServiceClient>(new FileQueueServiceClient(Path.Combine(storagePath, "queues")));
+builder.Services.AddSingleton<BlobServiceClient>(new FileBlobServiceClient(storagePath));
+builder.Services.AddSingleton<TableServiceClient>(new FileTableServiceClient(storagePath));
+builder.Services.AddSingleton<QueueServiceClient>(new FileQueueServiceClient(storagePath));
 
 // ── Add the Storage REST API controllers ────────────────────────────────
 builder.Services.AddStorageServer();

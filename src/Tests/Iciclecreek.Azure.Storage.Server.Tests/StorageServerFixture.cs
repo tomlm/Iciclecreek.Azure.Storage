@@ -39,11 +39,11 @@ public class StorageServerFixture
         var builder = WebApplication.CreateBuilder();
 
         builder.Services.AddSingleton<BlobServiceClient>(
-            new FileBlobServiceClient(Path.Combine(_storagePath, "blobs")));
+            new FileBlobServiceClient(_storagePath));
         builder.Services.AddSingleton<QueueServiceClient>(
-            new FileQueueServiceClient(Path.Combine(_storagePath, "queues")));
+            new FileQueueServiceClient(_storagePath));
         builder.Services.AddSingleton<TableServiceClient>(
-            new FileTableServiceClient(Path.Combine(_storagePath, "tables")));
+            new FileTableServiceClient(_storagePath));
 
         builder.Services.AddStorageServer();
 

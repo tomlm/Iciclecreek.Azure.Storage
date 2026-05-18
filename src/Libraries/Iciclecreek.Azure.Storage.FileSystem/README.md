@@ -16,22 +16,13 @@ dotnet add package Iciclecreek.Azure.Storage.FileSystem
 
 ## Usage
 
-### Create a provider and account
-
-```csharp
-using Iciclecreek.Azure.Storage.FileSystem;
-using Iciclecreek.Azure.Storage.FileSystem.Blobs;
-using Iciclecreek.Azure.Storage.FileSystem.Tables;
-using Iciclecreek.Azure.Storage.FileSystem.Queues;
-
-var provider = new FileStorageProvider(@"C:\temp\my-storage");
-var account  = provider.AddAccount("devaccount");
-```
-
 ### Blobs
 
 ```csharp
-BlobContainerClient container = FileBlobContainerClient.FromAccount(account, "my-container");
+using Iciclecreek.Azure.Storage.FileSystem.Blobs;
+
+var blobService = new FileBlobServiceClient(@"C:\temp\my-storage");
+BlobContainerClient container = blobService.GetBlobContainerClient("my-container");
 await container.CreateIfNotExistsAsync();
 
 BlobClient blob = container.GetBlobClient("hello.txt");
@@ -44,7 +35,10 @@ Console.WriteLine(result.Content.ToString()); // "Hello, World!"
 ### Tables
 
 ```csharp
-TableClient table = FileTableClient.FromAccount(account, "people");
+using Iciclecreek.Azure.Storage.FileSystem.Tables;
+
+var tableService = new FileTableServiceClient(@"C:\temp\my-storage");
+TableClient table = tableService.GetTableClient("people");
 await table.CreateIfNotExistsAsync();
 
 await table.AddEntityAsync(new TableEntity("users", "alice") { ["Name"] = "Alice" });
@@ -54,7 +48,10 @@ var entity = (await table.GetEntityAsync<TableEntity>("users", "alice")).Value;
 ### Queues
 
 ```csharp
-QueueClient queue = FileQueueClient.FromAccount(account, "tasks");
+using Iciclecreek.Azure.Storage.FileSystem.Queues;
+
+var queueService = new FileQueueServiceClient(@"C:\temp\my-storage");
+QueueClient queue = queueService.GetQueueClient("tasks");
 queue.Create();
 
 queue.SendMessage("do the thing");
@@ -68,14 +65,12 @@ Every `File*` client inherits from its Azure SDK base type:
 
 ```csharp
 // Production
-services.AddSingleton<BlobContainerClient>(
-    new BlobContainerClient(connectionString, "images"));
+services.AddSingleton<BlobServiceClient>(
+    new BlobServiceClient(connectionString));
 
 // Test
-var provider = new FileStorageProvider(testDir);
-var account  = provider.AddAccount("test");
-services.AddSingleton<BlobContainerClient>(
-    FileBlobContainerClient.FromAccount(account, "images"));
+services.AddSingleton<BlobServiceClient>(
+    new FileBlobServiceClient(@"C:\temp\my-storage"));
 ```
 
 ## Related Packages
@@ -83,7 +78,7 @@ services.AddSingleton<BlobContainerClient>(
 | Package | Description |
 |---------|-------------|
 | [Iciclecreek.Azure.Storage.Memory](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.Memory) | Thread-safe in-memory implementation (fastest, no I/O) |
-| [Iciclecreek.Azure.Storage.SQLite](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.SQLite) | SQLite-backed implementation (single .db file per account) |
+| [Iciclecreek.Azure.Storage.SQLite](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.SQLite) | SQLite-backed implementation (single .db file) |
 | [Iciclecreek.Azure.Storage.Server](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.Server) | ASP.NET Core REST API server on top of any provider |
 
 ## License
