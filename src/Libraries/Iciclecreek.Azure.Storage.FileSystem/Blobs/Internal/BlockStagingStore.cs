@@ -10,7 +10,7 @@ internal sealed class BlockStagingStore
     public BlockStagingStore(BlobStore store, string blobName)
     {
         _stagingDir = Path.Combine(store.ContainerPath, ".blocks", BlobPathEncoder.EncodeBlockId(blobName));
-        _jsonOpts = store.Provider.JsonSerializerOptions;
+        _jsonOpts = store.Options.JsonSerializerOptions;
     }
 
     public string StagingDir => _stagingDir;

@@ -15,7 +15,7 @@ public class QueueMessageTests
     public void Setup()
     {
         _root = new TempRoot();
-        _client = FileQueueClient.FromAccount(_root.Account, "msgq");
+        _client = _root.QueueService.GetQueueClient("msgq") as FileQueueClient;
         _client.Create();
     }
 
@@ -45,7 +45,7 @@ public class QueueMessageTests
     public void SendMessage_Creates_File_On_Disk()
     {
         var receipt = _client.SendMessage("disk test").Value;
-        var msgDir = Path.Combine(_root.Account.QueuesRootPath, "msgq", "messages");
+        var msgDir = Path.Combine(_root.QueuesPath, "msgq", "messages");
         var file = Path.Combine(msgDir, $"{receipt.MessageId}.json");
         Assert.That(File.Exists(file), Is.True);
     }
@@ -60,7 +60,7 @@ public class QueueMessageTests
     [Test]
     public void SendMessage_Throws_404_When_Queue_Missing()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "nope");
+        var client = _root.QueueService.GetQueueClient("nope") as FileQueueClient;
         var ex = Assert.Throws<RequestFailedException>(() => client.SendMessage("fail"));
         Assert.That(ex!.Status, Is.EqualTo(404));
     }

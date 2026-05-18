@@ -17,15 +17,15 @@ public class QueueServiceClientTests
     [Test]
     public void FromAccount_Returns_Service_Client()
     {
-        var svc = FileQueueServiceClient.FromAccount(_root.Account);
+        var svc = _root.QueueService;
         Assert.That(svc, Is.Not.Null);
-        Assert.That(svc.AccountName, Is.EqualTo(_root.Account.Name));
+        Assert.That(svc.AccountName, Is.Empty);
     }
 
     [Test]
     public void GetQueueClient_Returns_FileQueueClient()
     {
-        var svc = FileQueueServiceClient.FromAccount(_root.Account);
+        var svc = _root.QueueService;
         var client = svc.GetQueueClient("test-queue");
         Assert.That(client, Is.InstanceOf<FileQueueClient>());
         Assert.That(client.Name, Is.EqualTo("test-queue"));
@@ -34,7 +34,7 @@ public class QueueServiceClientTests
     [Test]
     public void GetQueues_Lists_Created_Queues()
     {
-        var svc = FileQueueServiceClient.FromAccount(_root.Account);
+        var svc = _root.QueueService;
         svc.GetQueueClient("queue-a").Create();
         svc.GetQueueClient("queue-b").Create();
 
@@ -46,7 +46,7 @@ public class QueueServiceClientTests
     [Test]
     public void GetQueues_With_Prefix_Filters()
     {
-        var svc = FileQueueServiceClient.FromAccount(_root.Account);
+        var svc = _root.QueueService;
         svc.GetQueueClient("prefix-a").Create();
         svc.GetQueueClient("prefix-b").Create();
         svc.GetQueueClient("other-c").Create();
@@ -61,7 +61,7 @@ public class QueueServiceClientTests
     [Test]
     public async Task GetQueuesAsync_Lists_Created_Queues()
     {
-        var svc = FileQueueServiceClient.FromAccount(_root.Account);
+        var svc = _root.QueueService;
         await svc.GetQueueClient("async-q1").CreateAsync();
         await svc.GetQueueClient("async-q2").CreateAsync();
 
@@ -76,7 +76,7 @@ public class QueueServiceClientTests
     [Test]
     public void GetQueues_Returns_Empty_When_None()
     {
-        var svc = FileQueueServiceClient.FromAccount(_root.Account);
+        var svc = _root.QueueService;
         var queues = svc.GetQueues().ToList();
         Assert.That(queues, Is.Empty);
     }
@@ -84,7 +84,7 @@ public class QueueServiceClientTests
     [Test]
     public void CreateQueue_Via_ServiceClient()
     {
-        var svc = FileQueueServiceClient.FromAccount(_root.Account);
+        var svc = _root.QueueService;
         var result = svc.CreateQueue("svc-created");
         Assert.That(result.Value.Name, Is.EqualTo("svc-created"));
     }
@@ -92,7 +92,7 @@ public class QueueServiceClientTests
     [Test]
     public void DeleteQueue_Via_ServiceClient()
     {
-        var svc = FileQueueServiceClient.FromAccount(_root.Account);
+        var svc = _root.QueueService;
         svc.CreateQueue("svc-delete");
 
         Assert.DoesNotThrow(() => svc.DeleteQueue("svc-delete"));
@@ -104,8 +104,8 @@ public class QueueServiceClientTests
     [Test]
     public void Uri_Contains_Account_Name()
     {
-        var svc = FileQueueServiceClient.FromAccount(_root.Account);
-        Assert.That(svc.Uri.ToString(), Does.Contain(_root.Account.Name));
+        var svc = _root.QueueService;
+        Assert.That(svc.Uri.ToString(), Is.Not.Null);
         Assert.That(svc.Uri.ToString(), Does.Contain("queue"));
     }
 }

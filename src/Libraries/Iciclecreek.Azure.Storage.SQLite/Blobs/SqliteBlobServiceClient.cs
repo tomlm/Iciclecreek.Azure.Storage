@@ -9,44 +9,34 @@ namespace Iciclecreek.Azure.Storage.SQLite.Blobs;
 /// <summary>SQLite-backed drop-in replacement for <see cref="BlobServiceClient"/>.</summary>
 public class SqliteBlobServiceClient : BlobServiceClient
 {
-    internal readonly SqliteStorageAccount _account;
+    internal readonly SqliteDb Db;
+    private readonly string _accountName;
+    private readonly Uri _blobServiceUri;
 
-    public SqliteBlobServiceClient(string connectionString, SqliteStorageProvider provider) : base()
+    public SqliteBlobServiceClient(string dbPath) : base()
     {
-        _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
+        Db = new SqliteDb(dbPath);
+        _accountName = string.Empty;
+        _blobServiceUri = new Uri("sqlite://blob/");
     }
-
-    public SqliteBlobServiceClient(Uri serviceUri, SqliteStorageProvider provider) : base()
-    {
-        var name = StorageUriParser.ExtractAccountName(serviceUri, provider.HostnameSuffix)
-            ?? throw new ArgumentException("Cannot determine account name from URI.", nameof(serviceUri));
-        _account = provider.GetAccount(name);
-    }
-
-    internal SqliteBlobServiceClient(SqliteStorageAccount account) : base()
-    {
-        _account = account;
-    }
-
-    public static SqliteBlobServiceClient FromAccount(SqliteStorageAccount account) => new(account);
 
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _accountName;
     /// <inheritdoc/>
-    public override Uri Uri => _account.BlobServiceUri;
+    public override Uri Uri => _blobServiceUri;
 
     // ---- GetBlobContainerClient ----
 
     /// <inheritdoc/>
     public override BlobContainerClient GetBlobContainerClient(string blobContainerName)
-        => new SqliteBlobContainerClient(_account, blobContainerName);
+        => new SqliteBlobContainerClient(this, blobContainerName);
 
     // ---- CreateBlobContainer ----
 
     /// <inheritdoc/>
     public override Response<BlobContainerClient> CreateBlobContainer(string blobContainerName, PublicAccessType publicAccessType = default, IDictionary<string, string>? metadata = default, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteBlobContainerClient(_account, blobContainerName);
+        var client = new SqliteBlobContainerClient(this, blobContainerName);
         client.Create(publicAccessType, metadata, cancellationToken);
         return Response.FromValue<BlobContainerClient>(client, StubResponse.Created());
     }
@@ -60,7 +50,7 @@ public class SqliteBlobServiceClient : BlobServiceClient
     /// <inheritdoc/>
     public override Response DeleteBlobContainer(string blobContainerName, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteBlobContainerClient(_account, blobContainerName);
+        var client = new SqliteBlobContainerClient(this, blobContainerName);
         return client.Delete(conditions, cancellationToken);
     }
 
@@ -74,7 +64,7 @@ public class SqliteBlobServiceClient : BlobServiceClient
     public override Pageable<BlobContainerItem> GetBlobContainers(BlobContainerTraits traits = default, BlobContainerStates states = default, string? prefix = default, CancellationToken cancellationToken = default)
     {
         var items = new List<BlobContainerItem>();
-        using var conn = _account.Db.Open();
+        using var conn = Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = prefix is not null
             ? "SELECT Name, Metadata, CreatedOn FROM Containers WHERE Name LIKE @prefix || '%'"
@@ -173,7 +163,7 @@ public class SqliteBlobServiceClient : BlobServiceClient
         if (conditions.Count == 0)
             return new StaticPageable<TaggedBlobItem>(results);
 
-        using var conn = _account.Db.Open();
+        using var conn = Db.Open();
 
         // Build SQL query using json_extract for each tag condition
         var whereClauses = new List<string>();

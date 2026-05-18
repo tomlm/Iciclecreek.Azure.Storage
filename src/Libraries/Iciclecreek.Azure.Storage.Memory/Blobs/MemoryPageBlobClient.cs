@@ -9,7 +9,7 @@ namespace Iciclecreek.Azure.Storage.Memory.Blobs;
 /// <summary>In-memory drop-in replacement for <see cref="PageBlobClient"/>.</summary>
 public class MemoryPageBlobClient : PageBlobClient
 {
-    internal readonly MemoryStorageAccount _account;
+    internal readonly MemoryBlobServiceClient _serviceClient;
     internal readonly string _containerName;
     internal readonly string _blobName;
 
@@ -17,22 +17,19 @@ public class MemoryPageBlobClient : PageBlobClient
     private readonly List<(long Offset, long Length)> _pageRanges = new();
     private readonly object _pageRangesLock = new();
 
-    internal MemoryPageBlobClient(MemoryStorageAccount account, string containerName, string blobName) : base()
+    internal MemoryPageBlobClient(MemoryBlobServiceClient serviceClient, string containerName, string blobName) : base()
     {
-        _account = account;
+        _serviceClient = serviceClient;
         _containerName = containerName;
         _blobName = blobName;
     }
 
-    public static MemoryPageBlobClient FromAccount(MemoryStorageAccount account, string containerName, string blobName)
-        => new(account, containerName, blobName);
-
     // -- Properties --
 
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     public override string BlobContainerName => _containerName;
     public override string Name => _blobName;
-    public override Uri Uri => new($"{_account.BlobServiceUri}{_containerName}/{System.Uri.EscapeDataString(_blobName)}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_containerName}/{System.Uri.EscapeDataString(_blobName)}");
 
     // -- Create --
 
@@ -41,7 +38,7 @@ public class MemoryPageBlobClient : PageBlobClient
         if (size % 512 != 0)
             throw new RequestFailedException(400, "Page blob size must be a multiple of 512.", "InvalidHeaderValue", null);
 
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
 
         var now = DateTimeOffset.UtcNow;
@@ -80,7 +77,7 @@ public class MemoryPageBlobClient : PageBlobClient
 
     public override async Task<Response<BlobContentInfo>> CreateIfNotExistsAsync(long size, PageBlobCreateOptions? options = null, CancellationToken ct = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
 
         if (store.Blobs.TryGetValue(_blobName, out var existing))
@@ -111,7 +108,7 @@ public class MemoryPageBlobClient : PageBlobClient
         if (data.Length % 512 != 0)
             throw new RequestFailedException(400, "Page data length must be a multiple of 512.", "InvalidHeaderValue", null);
 
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
             throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
@@ -156,7 +153,7 @@ public class MemoryPageBlobClient : PageBlobClient
 
     public override async Task<Response<PageInfo>> ClearPagesAsync(HttpRange range, PageBlobRequestConditions? conditions = null, CancellationToken ct = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
             throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
@@ -194,7 +191,7 @@ public class MemoryPageBlobClient : PageBlobClient
 
     public override async Task<Response<PageRangesInfo>> GetPageRangesAsync(HttpRange? range = null, string? snapshot = null, PageBlobRequestConditions? conditions = null, CancellationToken ct = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
             throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
@@ -219,7 +216,7 @@ public class MemoryPageBlobClient : PageBlobClient
         if (size % 512 != 0)
             throw new RequestFailedException(400, "Page blob size must be a multiple of 512.", "InvalidHeaderValue", null);
 
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
             throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
@@ -265,7 +262,7 @@ public class MemoryPageBlobClient : PageBlobClient
 
     public override async Task<Response<PageBlobInfo>> UpdateSequenceNumberAsync(SequenceNumberAction action, long? sequenceNumber = null, PageBlobRequestConditions? conditions = null, CancellationToken ct = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
             throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
@@ -307,7 +304,7 @@ public class MemoryPageBlobClient : PageBlobClient
 
     public override async Task<Response<BlobProperties>> GetPropertiesAsync(BlobRequestConditions conditions = default!, CancellationToken ct = default)
     {
-        var blobClient = new MemoryBlobClient(_account, _containerName, _blobName);
+        var blobClient = new MemoryBlobClient(_serviceClient, _containerName, _blobName);
         return await blobClient.GetPropertiesAsync(conditions, ct).ConfigureAwait(false);
     }
 

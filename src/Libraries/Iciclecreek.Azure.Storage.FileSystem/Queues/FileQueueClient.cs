@@ -12,22 +12,20 @@ namespace Iciclecreek.Azure.Storage.FileSystem.Queues;
 /// </summary>
 public class FileQueueClient : QueueClient
 {
-    private readonly FileStorageAccount _account;
+    private readonly FileQueueServiceClient _serviceClient;
     private readonly QueueStore _store;
 
-    internal FileQueueClient(FileStorageAccount account, string queueName) : base()
+    internal FileQueueClient(FileQueueServiceClient serviceClient, string queueName) : base()
     {
-        _account = account;
-        _store = new QueueStore(account, queueName);
+        _serviceClient = serviceClient;
+        _store = new QueueStore(serviceClient.QueuesRootPath, queueName, serviceClient.Options);
     }
-
-    public static FileQueueClient FromAccount(FileStorageAccount account, string queueName) => new(account, queueName);
 
     // ── Properties ──────────────────────────────────────────────────────
 
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     public override string Name => _store.QueueName;
-    public override Uri Uri => new($"{_account.QueueServiceUri}{_store.QueueName}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_store.QueueName}");
 
     // ── Queue Lifecycle ─────────────────────────────────────────────────
 

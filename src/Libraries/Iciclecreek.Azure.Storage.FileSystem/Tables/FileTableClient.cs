@@ -13,46 +13,20 @@ namespace Iciclecreek.Azure.Storage.FileSystem.Tables;
 public class FileTableClient : TableClient
 {
     internal readonly TableStore _store;
-    internal readonly FileStorageAccount _account;
+    internal readonly FileTableServiceClient _serviceClient;
 
-    /// <summary>Initializes a new <see cref="FileTableClient"/> from a connection string, table name, and storage provider.</summary>
-    /// <param name="connectionString">The connection string identifying the storage account.</param>
-    /// <param name="tableName">The name of the table.</param>
-    /// <param name="provider">The filesystem storage provider that manages account root paths.</param>
-    public FileTableClient(string connectionString, string tableName, FileStorageProvider provider) : base()
+    internal FileTableClient(FileTableServiceClient serviceClient, string tableName) : base()
     {
-        _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
-        _store = new TableStore(_account, tableName);
+        _serviceClient = serviceClient;
+        _store = new TableStore(serviceClient.TablesRootPath, tableName, serviceClient.Options);
     }
-
-    /// <summary>Initializes a new <see cref="FileTableClient"/> from a table URI and storage provider.</summary>
-    /// <param name="tableUri">The URI of the table, including the account name and table name.</param>
-    /// <param name="provider">The filesystem storage provider that manages account root paths.</param>
-    public FileTableClient(Uri tableUri, FileStorageProvider provider) : base()
-    {
-        var (acctName, table) = StorageUriParser.ParseTableUri(tableUri, provider.HostnameSuffix);
-        _account = provider.GetAccount(acctName);
-        _store = new TableStore(_account, table);
-    }
-
-    internal FileTableClient(FileStorageAccount account, string tableName) : base()
-    {
-        _account = account;
-        _store = new TableStore(account, tableName);
-    }
-
-    /// <summary>Creates a new <see cref="FileTableClient"/> directly from a <see cref="FileStorageAccount"/> and table name.</summary>
-    /// <param name="account">The filesystem storage account.</param>
-    /// <param name="tableName">The name of the table.</param>
-    /// <returns>A new <see cref="FileTableClient"/> instance.</returns>
-    public static FileTableClient FromAccount(FileStorageAccount account, string tableName) => new(account, tableName);
 
     /// <inheritdoc/>
     public override string Name => _store.TableName;
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     /// <inheritdoc/>
-    public override Uri Uri => new($"{_account.TableServiceUri}{_store.TableName}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_store.TableName}");
 
     // ---- Create / Delete (no file I/O, just directory ops) ----
 

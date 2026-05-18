@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using Azure;
 using Azure.Data.Tables;
@@ -9,51 +10,49 @@ namespace Iciclecreek.Azure.Storage.Memory.Tables;
 
 /// <summary>
 /// In-memory drop-in replacement for <see cref="Azure.Data.Tables.TableServiceClient"/>.
-/// Tables are stored in <see cref="MemoryStorageAccount.Tables"/>.
 /// </summary>
 public class MemoryTableServiceClient : TableServiceClient
 {
-    internal readonly MemoryStorageAccount _account;
+    internal readonly ConcurrentDictionary<string, TableStore> Tables = new();
+    private readonly string _accountName;
+    private readonly Uri _tableServiceUri;
 
-    /// <summary>Initializes a new <see cref="MemoryTableServiceClient"/> from a <see cref="MemoryStorageAccount"/>.</summary>
-    public MemoryTableServiceClient(MemoryStorageAccount account) : base()
+    public MemoryTableServiceClient() : base()
     {
-        _account = account;
+        _accountName = string.Empty;
+        _tableServiceUri = new Uri("memory://table/");
     }
 
-    /// <summary>Creates a new <see cref="MemoryTableServiceClient"/> directly from a <see cref="MemoryStorageAccount"/>.</summary>
-    public static MemoryTableServiceClient FromAccount(MemoryStorageAccount account) => new(account);
-
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _accountName;
     /// <inheritdoc/>
-    public override Uri Uri => _account.TableServiceUri;
+    public override Uri Uri => _tableServiceUri;
 
     // ---- GetTableClient ----
 
     /// <inheritdoc/>
-    public override TableClient GetTableClient(string tableName) => new MemoryTableClient(_account, tableName);
+    public override TableClient GetTableClient(string tableName) => new MemoryTableClient(this, tableName);
 
     // ---- CreateTable ----
 
     /// <inheritdoc/>
     public override Response<TableItem> CreateTable(string tableName, CancellationToken cancellationToken = default)
     {
-        var client = new MemoryTableClient(_account, tableName);
+        var client = new MemoryTableClient(this, tableName);
         return client.Create(cancellationToken);
     }
 
     /// <inheritdoc/>
     public override Response<TableItem> CreateTableIfNotExists(string tableName, CancellationToken cancellationToken = default)
     {
-        var client = new MemoryTableClient(_account, tableName);
+        var client = new MemoryTableClient(this, tableName);
         return client.CreateIfNotExists(cancellationToken);
     }
 
     /// <inheritdoc/>
     public override Response DeleteTable(string tableName, CancellationToken cancellationToken = default)
     {
-        var client = new MemoryTableClient(_account, tableName);
+        var client = new MemoryTableClient(this, tableName);
         return client.Delete(cancellationToken);
     }
 
@@ -74,7 +73,7 @@ public class MemoryTableServiceClient : TableServiceClient
     /// <inheritdoc/>
     public override Pageable<TableItem> Query(string? filter = null, int? maxPerPage = null, CancellationToken cancellationToken = default)
     {
-        var items = _account.Tables.Keys
+        var items = Tables.Keys
             .OrderBy(n => n)
             .Select(n => new TableItem(n))
             .ToList();
@@ -130,9 +129,9 @@ public class MemoryTableServiceClient : TableServiceClient
 
     // ---- Remaining virtual methods ----
     /// <inheritdoc/>
-    public override Uri GenerateSasUri(TableAccountSasPermissions permissions, TableAccountSasResourceTypes resourceTypes, DateTimeOffset expiresOn) => _account.TableServiceUri;
+    public override Uri GenerateSasUri(TableAccountSasPermissions permissions, TableAccountSasResourceTypes resourceTypes, DateTimeOffset expiresOn) => _tableServiceUri;
     /// <inheritdoc/>
-    public override Uri GenerateSasUri(TableAccountSasBuilder builder) => _account.TableServiceUri;
+    public override Uri GenerateSasUri(TableAccountSasBuilder builder) => _tableServiceUri;
     /// <inheritdoc/>
     public override TableAccountSasBuilder GetSasBuilder(TableAccountSasPermissions permissions, TableAccountSasResourceTypes resourceTypes, DateTimeOffset expiresOn) => new TableAccountSasBuilder(permissions, resourceTypes, expiresOn);
     /// <inheritdoc/>

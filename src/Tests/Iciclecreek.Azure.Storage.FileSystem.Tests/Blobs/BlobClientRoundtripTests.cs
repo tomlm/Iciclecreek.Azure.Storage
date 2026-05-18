@@ -15,13 +15,13 @@ public class BlobClientRoundtripTests : BlobClientRoundtripTestsBase
     [Test]
     public void Upload_Creates_Real_File_On_Disk()
     {
-        var container = FileBlobContainerClient.FromAccount(FileFixture.Account, "disk-container");
+        var container = FileFixture.BlobService.GetBlobContainerClient("disk-container") as FileBlobContainerClient;
         container.CreateIfNotExists();
 
         BlobClient client = container.GetBlobClient("real-file.txt");
         client.Upload(BinaryData.FromString("filesystem test"));
 
-        var expectedPath = Path.Combine(FileFixture.Account.BlobsRootPath, "disk-container", "real-file.txt");
+        var expectedPath = Path.Combine(FileFixture.BlobsPath, "disk-container", "real-file.txt");
         Assert.That(File.Exists(expectedPath), Is.True);
         Assert.That(File.ReadAllText(expectedPath), Is.EqualTo("filesystem test"));
     }
@@ -29,13 +29,13 @@ public class BlobClientRoundtripTests : BlobClientRoundtripTestsBase
     [Test]
     public async Task Upload_Creates_Real_File_On_Disk_Async()
     {
-        var container = FileBlobContainerClient.FromAccount(FileFixture.Account, "disk-container");
+        var container = FileFixture.BlobService.GetBlobContainerClient("disk-container") as FileBlobContainerClient;
         await container.CreateIfNotExistsAsync();
 
         BlobClient client = container.GetBlobClient("real-file.txt");
         await client.UploadAsync(BinaryData.FromString("filesystem test"));
 
-        var expectedPath = Path.Combine(FileFixture.Account.BlobsRootPath, "disk-container", "real-file.txt");
+        var expectedPath = Path.Combine(FileFixture.BlobsPath, "disk-container", "real-file.txt");
         Assert.That(File.Exists(expectedPath), Is.True);
         Assert.That(File.ReadAllText(expectedPath), Is.EqualTo("filesystem test"));
     }
@@ -43,7 +43,7 @@ public class BlobClientRoundtripTests : BlobClientRoundtripTestsBase
     [Test]
     public async Task Upload_Download_Async_Works()
     {
-        var container = FileBlobContainerClient.FromAccount(FileFixture.Account, "async-test");
+        var container = FileFixture.BlobService.GetBlobContainerClient("async-test") as FileBlobContainerClient;
         await container.CreateIfNotExistsAsync();
 
         BlobClient client = container.GetBlobClient("async.txt");

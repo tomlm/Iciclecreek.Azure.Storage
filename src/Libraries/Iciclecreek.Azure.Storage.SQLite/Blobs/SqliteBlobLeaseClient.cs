@@ -35,7 +35,7 @@ public class SqliteBlobLeaseClient : BlobLeaseClient
         if (durationSecs != -1 && (durationSecs < 15 || durationSecs > 60))
             throw new RequestFailedException(400, "Lease duration must be 15-60 seconds or -1 (infinite).", "InvalidHeaderValue", null);
 
-        using var conn = _blob._account.Db.Open();
+        using var conn = _blob._serviceClient.Db.Open();
 
         // Check for existing active lease
         using (var checkCmd = conn.CreateCommand())
@@ -101,7 +101,7 @@ public class SqliteBlobLeaseClient : BlobLeaseClient
     /// <inheritdoc/>
     public override async Task<Response<BlobLease>> RenewAsync(RequestConditions? conditions = null, CancellationToken cancellationToken = default)
     {
-        using var conn = _blob._account.Db.Open();
+        using var conn = _blob._serviceClient.Db.Open();
 
         using var checkCmd = conn.CreateCommand();
         checkCmd.CommandText = "SELECT LeaseId, LeaseDurationSeconds FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
@@ -151,7 +151,7 @@ public class SqliteBlobLeaseClient : BlobLeaseClient
     /// <inheritdoc/>
     public override async Task<Response<ReleasedObjectInfo>> ReleaseAsync(RequestConditions? conditions = null, CancellationToken cancellationToken = default)
     {
-        using var conn = _blob._account.Db.Open();
+        using var conn = _blob._serviceClient.Db.Open();
 
         using var checkCmd = conn.CreateCommand();
         checkCmd.CommandText = "SELECT LeaseId FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
@@ -192,7 +192,7 @@ public class SqliteBlobLeaseClient : BlobLeaseClient
     /// <inheritdoc/>
     public override async Task<Response<BlobLease>> ChangeAsync(string proposedId, RequestConditions? conditions = null, CancellationToken cancellationToken = default)
     {
-        using var conn = _blob._account.Db.Open();
+        using var conn = _blob._serviceClient.Db.Open();
 
         using var checkCmd = conn.CreateCommand();
         checkCmd.CommandText = "SELECT LeaseId FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
@@ -235,7 +235,7 @@ public class SqliteBlobLeaseClient : BlobLeaseClient
     /// <inheritdoc/>
     public override async Task<Response<BlobLease>> BreakAsync(TimeSpan? breakPeriod = null, RequestConditions? conditions = null, CancellationToken cancellationToken = default)
     {
-        using var conn = _blob._account.Db.Open();
+        using var conn = _blob._serviceClient.Db.Open();
 
         using var checkCmd = conn.CreateCommand();
         checkCmd.CommandText = "SELECT LeaseId, LeaseExpiresOn, LeaseDurationSeconds FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";

@@ -2,7 +2,6 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Specialized;
 using Azure.Storage.Queues;
 using Azure.Data.Tables;
-using Iciclecreek.Azure.Storage.SQLite;
 using Iciclecreek.Azure.Storage.SQLite.Blobs;
 using Iciclecreek.Azure.Storage.SQLite.Tables;
 using Iciclecreek.Azure.Storage.SQLite.Queues;
@@ -13,39 +12,37 @@ namespace Iciclecreek.Azure.Storage.SQLite.Tests.Infrastructure;
 public sealed class SqliteStorageTestFixture : StorageTestFixture
 {
     private readonly TempDb _db = new();
+    private readonly SqliteBlobServiceClient _blobService;
+    private readonly SqliteTableServiceClient _tableService;
+    private readonly SqliteQueueServiceClient _queueService;
 
-    public SqliteStorageProvider Provider => _db.Provider;
-    public SqliteStorageAccount Account => _db.Account;
+    public SqliteStorageTestFixture()
+    {
+        _blobService = new SqliteBlobServiceClient(_db.DbPath);
+        _tableService = new SqliteTableServiceClient(_db.DbPath);
+        _queueService = new SqliteQueueServiceClient(_db.DbPath);
+    }
 
     public override string TempPath => _db.Path;
-    public override Uri BlobServiceUri => _db.Account.BlobServiceUri;
+    public override Uri BlobServiceUri => _blobService.Uri;
 
     public override BlobContainerClient CreateBlobContainerClient(string name)
-        => SqliteBlobContainerClient.FromAccount(_db.Account, name);
-
+        => _blobService.GetBlobContainerClient(name);
     public override BlobServiceClient CreateBlobServiceClient()
-        => SqliteBlobServiceClient.FromAccount(_db.Account);
-
+        => _blobService;
     public override BlockBlobClient CreateBlockBlobClient(BlobContainerClient container, string name)
-        => SqliteBlockBlobClient.FromAccount(_db.Account, container.Name, name);
-
+        => ((SqliteBlobContainerClient)_blobService.GetBlobContainerClient(container.Name)).GetBlockBlobClient(name);
     public override AppendBlobClient CreateAppendBlobClient(BlobContainerClient container, string name)
-        => SqliteAppendBlobClient.FromAccount(_db.Account, container.Name, name);
-
+        => ((SqliteBlobContainerClient)_blobService.GetBlobContainerClient(container.Name)).GetAppendBlobClient(name);
     public override PageBlobClient CreatePageBlobClient(BlobContainerClient container, string name)
-        => SqlitePageBlobClient.FromAccount(_db.Account, container.Name, name);
-
+        => ((SqliteBlobContainerClient)_blobService.GetBlobContainerClient(container.Name)).GetPageBlobClient(name);
     public override TableClient CreateTableClient(string name)
-        => SqliteTableClient.FromAccount(_db.Account, name);
-
+        => _tableService.GetTableClient(name);
     public override TableServiceClient CreateTableServiceClient()
-        => SqliteTableServiceClient.FromAccount(_db.Account);
-
+        => _tableService;
     public override QueueClient CreateQueueClient(string name)
-        => SqliteQueueClient.FromAccount(_db.Account, name);
-
+        => _queueService.GetQueueClient(name);
     public override QueueServiceClient CreateQueueServiceClient()
-        => SqliteQueueServiceClient.FromAccount(_db.Account);
-
+        => _queueService;
     public override void Dispose() => _db.Dispose();
 }

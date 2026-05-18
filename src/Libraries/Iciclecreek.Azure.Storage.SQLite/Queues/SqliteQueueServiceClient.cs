@@ -11,35 +11,35 @@ namespace Iciclecreek.Azure.Storage.SQLite.Queues;
 /// </summary>
 public class SqliteQueueServiceClient : QueueServiceClient
 {
-    private readonly SqliteStorageAccount _account;
+    internal readonly SqliteDb Db;
+    private readonly string _accountName;
+    private readonly Uri _queueServiceUri;
 
-    /// <summary>Initializes a new <see cref="SqliteQueueServiceClient"/> from a <see cref="SqliteStorageAccount"/>.</summary>
-    public SqliteQueueServiceClient(SqliteStorageAccount account) : base()
+    public SqliteQueueServiceClient(string dbPath) : base()
     {
-        _account = account;
+        Db = new SqliteDb(dbPath);
+        _accountName = string.Empty;
+        _queueServiceUri = new Uri("sqlite://queue/");
     }
-
-    /// <summary>Creates a new <see cref="SqliteQueueServiceClient"/> directly from a <see cref="SqliteStorageAccount"/>.</summary>
-    public static SqliteQueueServiceClient FromAccount(SqliteStorageAccount account) => new(account);
 
     // ── Properties ──────────────────────────────────────────────────────
 
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _accountName;
     /// <inheritdoc/>
-    public override Uri Uri => _account.QueueServiceUri;
+    public override Uri Uri => _queueServiceUri;
 
     // ── GetQueueClient ──────────────────────────────────────────────────
 
     /// <inheritdoc/>
-    public override QueueClient GetQueueClient(string queueName) => new SqliteQueueClient(_account, queueName);
+    public override QueueClient GetQueueClient(string queueName) => new SqliteQueueClient(this, queueName);
 
     // ── CreateQueue ─────────────────────────────────────────────────────
 
     /// <inheritdoc/>
     public override Response<QueueClient> CreateQueue(string queueName, IDictionary<string, string>? metadata = null, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteQueueClient(_account, queueName);
+        var client = new SqliteQueueClient(this, queueName);
         client.Create(metadata, cancellationToken);
         return Response.FromValue<QueueClient>(client, StubResponse.Created());
     }
@@ -56,7 +56,7 @@ public class SqliteQueueServiceClient : QueueServiceClient
     /// <inheritdoc/>
     public override Response DeleteQueue(string queueName, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteQueueClient(_account, queueName);
+        var client = new SqliteQueueClient(this, queueName);
         client.Delete(cancellationToken);
         return StubResponse.NoContent();
     }
@@ -74,7 +74,7 @@ public class SqliteQueueServiceClient : QueueServiceClient
     public override Pageable<QueueItem> GetQueues(QueueTraits traits = QueueTraits.None, string? prefix = null, CancellationToken cancellationToken = default)
     {
         var items = new List<QueueItem>();
-        using var conn = _account.Db.Open();
+        using var conn = Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT Name FROM Queues ORDER BY Name";
         using var reader = cmd.ExecuteReader();

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
@@ -8,44 +9,33 @@ namespace Iciclecreek.Azure.Storage.Memory.Blobs;
 /// <summary>In-memory drop-in replacement for <see cref="BlobServiceClient"/>.</summary>
 public class MemoryBlobServiceClient : BlobServiceClient
 {
-    internal readonly MemoryStorageAccount _account;
+    internal readonly ConcurrentDictionary<string, ContainerStore> Containers = new();
+    private readonly string _accountName;
+    private readonly Uri _blobServiceUri;
 
-    public MemoryBlobServiceClient(string connectionString, MemoryStorageProvider provider) : base()
+    public MemoryBlobServiceClient() : base()
     {
-        _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
+        _accountName = string.Empty;
+        _blobServiceUri = new Uri("memory://blob/");
     }
-
-    public MemoryBlobServiceClient(Uri serviceUri, MemoryStorageProvider provider) : base()
-    {
-        var name = StorageUriParser.ExtractAccountName(serviceUri, provider.HostnameSuffix)
-            ?? throw new ArgumentException("Cannot determine account name from URI.", nameof(serviceUri));
-        _account = provider.GetAccount(name);
-    }
-
-    internal MemoryBlobServiceClient(MemoryStorageAccount account) : base()
-    {
-        _account = account;
-    }
-
-    public static MemoryBlobServiceClient FromAccount(MemoryStorageAccount account) => new(account);
 
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _accountName;
     /// <inheritdoc/>
-    public override Uri Uri => _account.BlobServiceUri;
+    public override Uri Uri => _blobServiceUri;
 
     // ---- GetBlobContainerClient ----
 
     /// <inheritdoc/>
     public override BlobContainerClient GetBlobContainerClient(string blobContainerName)
-        => new MemoryBlobContainerClient(_account, blobContainerName);
+        => new MemoryBlobContainerClient(this, blobContainerName);
 
     // ---- CreateBlobContainer ----
 
     /// <inheritdoc/>
     public override Response<BlobContainerClient> CreateBlobContainer(string blobContainerName, PublicAccessType publicAccessType = default, IDictionary<string, string>? metadata = default, CancellationToken cancellationToken = default)
     {
-        var client = new MemoryBlobContainerClient(_account, blobContainerName);
+        var client = new MemoryBlobContainerClient(this, blobContainerName);
         client.Create(publicAccessType, metadata, cancellationToken);
         return Response.FromValue<BlobContainerClient>(client, StubResponse.Created());
     }
@@ -59,7 +49,7 @@ public class MemoryBlobServiceClient : BlobServiceClient
     /// <inheritdoc/>
     public override Response DeleteBlobContainer(string blobContainerName, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new MemoryBlobContainerClient(_account, blobContainerName);
+        var client = new MemoryBlobContainerClient(this, blobContainerName);
         return client.Delete(conditions, cancellationToken);
     }
 
@@ -73,7 +63,7 @@ public class MemoryBlobServiceClient : BlobServiceClient
     public override Pageable<BlobContainerItem> GetBlobContainers(BlobContainerTraits traits = default, BlobContainerStates states = default, string? prefix = default, CancellationToken cancellationToken = default)
     {
         var items = new List<BlobContainerItem>();
-        foreach (var kvp in _account.Containers)
+        foreach (var kvp in Containers)
         {
             var name = kvp.Key;
             if (prefix is not null && !name.StartsWith(prefix, StringComparison.Ordinal))
@@ -162,7 +152,7 @@ public class MemoryBlobServiceClient : BlobServiceClient
         if (conditions.Count == 0)
             return new StaticPageable<TaggedBlobItem>(results);
 
-        foreach (var containerKvp in _account.Containers)
+        foreach (var containerKvp in Containers)
         {
             var containerName = containerKvp.Key;
             var store = containerKvp.Value;

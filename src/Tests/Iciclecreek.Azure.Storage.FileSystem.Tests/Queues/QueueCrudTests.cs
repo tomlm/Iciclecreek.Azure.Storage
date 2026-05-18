@@ -20,27 +20,27 @@ public class QueueCrudTests
     [Test]
     public void Create_Creates_Directory_On_Disk()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "my-queue");
+        var client = _root.QueueService.GetQueueClient("my-queue") as FileQueueClient;
         client.Create();
 
-        var dir = Path.Combine(_root.Account.QueuesRootPath, "my-queue");
+        var dir = Path.Combine(_root.QueuesPath, "my-queue");
         Assert.That(Directory.Exists(dir), Is.True);
     }
 
     [Test]
     public async Task CreateAsync_Creates_Directory_On_Disk()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "my-queue-async");
+        var client = _root.QueueService.GetQueueClient("my-queue-async") as FileQueueClient;
         await client.CreateAsync();
 
-        var dir = Path.Combine(_root.Account.QueuesRootPath, "my-queue-async");
+        var dir = Path.Combine(_root.QueuesPath, "my-queue-async");
         Assert.That(Directory.Exists(dir), Is.True);
     }
 
     [Test]
     public void CreateIfNotExists_Is_Idempotent()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "idempotent-q");
+        var client = _root.QueueService.GetQueueClient("idempotent-q") as FileQueueClient;
         client.CreateIfNotExists();
         Assert.DoesNotThrow(() => client.CreateIfNotExists());
     }
@@ -48,14 +48,14 @@ public class QueueCrudTests
     [Test]
     public void Exists_Returns_False_For_Missing_Queue()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "nope");
+        var client = _root.QueueService.GetQueueClient("nope") as FileQueueClient;
         Assert.That(client.Exists().Value, Is.False);
     }
 
     [Test]
     public void Exists_Returns_True_After_Create()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "exists-q");
+        var client = _root.QueueService.GetQueueClient("exists-q") as FileQueueClient;
         client.Create();
         Assert.That(client.Exists().Value, Is.True);
     }
@@ -63,18 +63,18 @@ public class QueueCrudTests
     [Test]
     public void Delete_Removes_Directory()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "del-q");
+        var client = _root.QueueService.GetQueueClient("del-q") as FileQueueClient;
         client.Create();
         client.Delete();
 
-        var dir = Path.Combine(_root.Account.QueuesRootPath, "del-q");
+        var dir = Path.Combine(_root.QueuesPath, "del-q");
         Assert.That(Directory.Exists(dir), Is.False);
     }
 
     [Test]
     public void Delete_Throws_404_When_Missing()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "missing-q");
+        var client = _root.QueueService.GetQueueClient("missing-q") as FileQueueClient;
         var ex = Assert.Throws<RequestFailedException>(() => client.Delete());
         Assert.That(ex!.Status, Is.EqualTo(404));
     }
@@ -82,14 +82,14 @@ public class QueueCrudTests
     [Test]
     public void DeleteIfExists_Returns_False_When_Missing()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "missing-q");
+        var client = _root.QueueService.GetQueueClient("missing-q") as FileQueueClient;
         Assert.That(client.DeleteIfExists().Value, Is.False);
     }
 
     [Test]
     public void DeleteIfExists_Returns_True_And_Deletes()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "del-q2");
+        var client = _root.QueueService.GetQueueClient("del-q2") as FileQueueClient;
         client.Create();
         Assert.That(client.DeleteIfExists().Value, Is.True);
         Assert.That(client.Exists().Value, Is.False);
@@ -100,15 +100,15 @@ public class QueueCrudTests
     [Test]
     public void Name_Returns_Queue_Name()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "named-q");
+        var client = _root.QueueService.GetQueueClient("named-q") as FileQueueClient;
         Assert.That(client.Name, Is.EqualTo("named-q"));
     }
 
     [Test]
     public void AccountName_Returns_Account_Name()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "named-q");
-        Assert.That(client.AccountName, Is.EqualTo(_root.Account.Name));
+        var client = _root.QueueService.GetQueueClient("named-q") as FileQueueClient;
+        Assert.That(client.AccountName, Is.Empty);
     }
 
     // ── Metadata ────────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ public class QueueCrudTests
     [Test]
     public void SetMetadata_And_GetProperties_Roundtrip()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "meta-q");
+        var client = _root.QueueService.GetQueueClient("meta-q") as FileQueueClient;
         client.Create();
 
         client.SetMetadata(new Dictionary<string, string> { ["env"] = "test", ["region"] = "us" });
@@ -129,7 +129,7 @@ public class QueueCrudTests
     [Test]
     public void GetProperties_Returns_ApproximateMessageCount()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "count-q");
+        var client = _root.QueueService.GetQueueClient("count-q") as FileQueueClient;
         client.Create();
 
         client.SendMessage("msg1");
@@ -142,7 +142,7 @@ public class QueueCrudTests
     [Test]
     public void GetProperties_Throws_404_When_Missing()
     {
-        var client = FileQueueClient.FromAccount(_root.Account, "missing-q");
+        var client = _root.QueueService.GetQueueClient("missing-q") as FileQueueClient;
         var ex = Assert.Throws<RequestFailedException>(() => client.GetProperties());
         Assert.That(ex!.Status, Is.EqualTo(404));
     }

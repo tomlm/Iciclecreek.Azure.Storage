@@ -13,53 +13,23 @@ public class FileAppendBlobClient : AppendBlobClient
 {
     internal readonly BlobStore _store;
     internal readonly string _blobName;
-    internal readonly FileStorageAccount _account;
+    internal readonly FileBlobServiceClient _serviceClient;
 
-    /// <summary>Initializes a new <see cref="FileAppendBlobClient"/> from a connection string, container name, blob name, and provider.</summary>
-    /// <param name="connectionString">The storage connection string.</param>
-    /// <param name="containerName">The name of the blob container.</param>
-    /// <param name="blobName">The name of the blob.</param>
-    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
-    public FileAppendBlobClient(string connectionString, string containerName, string blobName, FileStorageProvider provider) : base()
+    internal FileAppendBlobClient(FileBlobServiceClient serviceClient, string containerName, string blobName) : base()
     {
-        _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
-        _store = new BlobStore(_account, containerName);
+        _serviceClient = serviceClient;
+        _store = new BlobStore(serviceClient.BlobsRootPath, containerName, serviceClient.Options);
         _blobName = blobName;
     }
-
-    /// <summary>Initializes a new <see cref="FileAppendBlobClient"/> by parsing a blob URI against the given provider.</summary>
-    /// <param name="blobUri">The blob URI to parse.</param>
-    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
-    public FileAppendBlobClient(Uri blobUri, FileStorageProvider provider) : base()
-    {
-        var (acctName, container, blob) = StorageUriParser.ParseBlobUri(blobUri, provider.HostnameSuffix);
-        _account = provider.GetAccount(acctName);
-        _store = new BlobStore(_account, container);
-        _blobName = blob ?? throw new ArgumentException("URI must include a blob name.", nameof(blobUri));
-    }
-
-    internal FileAppendBlobClient(FileStorageAccount account, string containerName, string blobName) : base()
-    {
-        _account = account;
-        _store = new BlobStore(account, containerName);
-        _blobName = blobName;
-    }
-
-    /// <summary>Creates a new <see cref="FileAppendBlobClient"/> from an existing <see cref="FileStorageAccount"/>.</summary>
-    /// <param name="account">The filesystem-backed storage account.</param>
-    /// <param name="containerName">The name of the blob container.</param>
-    /// <param name="blobName">The name of the blob.</param>
-    public static FileAppendBlobClient FromAccount(FileStorageAccount account, string containerName, string blobName)
-        => new(account, containerName, blobName);
 
     /// <inheritdoc/>
     public override string Name => _blobName;
     /// <inheritdoc/>
     public override string BlobContainerName => _store.ContainerName;
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     /// <inheritdoc/>
-    public override Uri Uri => new($"{_account.BlobServiceUri}{_store.ContainerName}/{System.Uri.EscapeDataString(_blobName)}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_store.ContainerName}/{System.Uri.EscapeDataString(_blobName)}");
 
     // ---- Create (async = primary) ----
 
@@ -144,7 +114,6 @@ public class FileAppendBlobClient : AppendBlobClient
 
         await using (var fs = new FileStream(blobPath, FileMode.Append, FileAccess.Write, FileShare.None, 81920, useAsync: true))
         {
-            // Check append position if specified.
             if (options?.Conditions?.IfAppendPositionEqual is { } expectedPos && fs.Position != expectedPos)
                 throw new RequestFailedException(412, $"AppendPositionOffset mismatch. Expected {expectedPos}, actual {fs.Position}.", "AppendPositionConditionNotMet", null);
 
@@ -153,7 +122,6 @@ public class FileAppendBlobClient : AppendBlobClient
             newLength = fs.Length;
         }
 
-        // Check max size.
         if (options?.Conditions?.IfMaxSizeLessThanOrEqual is { } maxSize && newLength > maxSize)
             throw new RequestFailedException(412, $"Blob size {newLength} exceeds MaxSize {maxSize}.", "MaxBlobSizeConditionNotMet", null);
 
@@ -211,7 +179,7 @@ public class FileAppendBlobClient : AppendBlobClient
     /// <inheritdoc/>
     public override async Task<Response<BlobProperties>> GetPropertiesAsync(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var blobClient = new FileBlobClient(_account, _store.ContainerName, _blobName);
+        var blobClient = new FileBlobClient(_serviceClient, _store.ContainerName, _blobName);
         return await blobClient.GetPropertiesAsync(conditions, cancellationToken).ConfigureAwait(false);
     }
 
@@ -222,7 +190,7 @@ public class FileAppendBlobClient : AppendBlobClient
     /// <inheritdoc/>
     public override async Task<Response<BlobDownloadResult>> DownloadContentAsync(CancellationToken cancellationToken = default)
     {
-        var blobClient = new FileBlobClient(_account, _store.ContainerName, _blobName);
+        var blobClient = new FileBlobClient(_serviceClient, _store.ContainerName, _blobName);
         return await blobClient.DownloadContentAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -240,7 +208,7 @@ public class FileAppendBlobClient : AppendBlobClient
     /// <inheritdoc/>
     public override async Task<Stream> OpenWriteAsync(bool overwrite, AppendBlobOpenWriteOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var blobClient = new FileBlobClient(_account, _store.ContainerName, _blobName);
+        var blobClient = new FileBlobClient(_serviceClient, _store.ContainerName, _blobName);
         return await blobClient.OpenWriteAsync(overwrite, null, cancellationToken).ConfigureAwait(false);
     }
 
@@ -284,15 +252,15 @@ public class FileAppendBlobClient : AppendBlobClient
 
     private async Task<Stream> ResolveUriToStreamAsync(Uri uri, CancellationToken ct)
     {
-        var acctName = StorageUriParser.ExtractAccountName(uri, _account.Provider.HostnameSuffix);
-        if (acctName is not null && _account.Provider.TryGetAccount(acctName, out var srcAccount) && srcAccount is not null)
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length >= 2)
         {
-            var (_, container, blob) = StorageUriParser.ParseBlobUri(uri, _account.Provider.HostnameSuffix);
-            var srcStore = new BlobStore(srcAccount, container);
-            var srcPath = srcStore.BlobPath(blob!);
-            if (!File.Exists(srcPath))
-                throw new RequestFailedException(404, "Source blob not found.", "BlobNotFound", null);
-            return new FileStream(srcPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            var srcContainer = segments[0];
+            var srcBlob = Uri.UnescapeDataString(string.Join("/", segments.Skip(1)));
+            var srcStore = new Internal.BlobStore(_serviceClient.BlobsRootPath, srcContainer, _serviceClient.Options);
+            var srcPath = srcStore.BlobPath(srcBlob);
+            if (File.Exists(srcPath))
+                return new MemoryStream(await File.ReadAllBytesAsync(srcPath, ct).ConfigureAwait(false));
         }
         using var http = new HttpClient();
         var bytes = await http.GetByteArrayAsync(uri.ToString()).ConfigureAwait(false);

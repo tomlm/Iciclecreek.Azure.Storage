@@ -2,7 +2,6 @@ using System.Net;
 using Azure.Data.Tables;
 using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
-using Iciclecreek.Azure.Storage.FileSystem;
 using Iciclecreek.Azure.Storage.FileSystem.Blobs;
 using Iciclecreek.Azure.Storage.FileSystem.Queues;
 using Iciclecreek.Azure.Storage.FileSystem.Tables;
@@ -36,17 +35,15 @@ public class StorageServerFixture
     public async Task GlobalSetup()
     {
         _storagePath = Path.Combine(Path.GetTempPath(), $"StorageServerTests_{Guid.NewGuid():N}");
-        var provider = new FileStorageProvider(_storagePath);
-        var account = provider.AddAccount(AccountName);
 
         var builder = WebApplication.CreateBuilder();
 
         builder.Services.AddSingleton<BlobServiceClient>(
-            FileBlobServiceClient.FromAccount(account));
+            new FileBlobServiceClient(Path.Combine(_storagePath, "blobs")));
         builder.Services.AddSingleton<QueueServiceClient>(
-            FileQueueServiceClient.FromAccount(account));
+            new FileQueueServiceClient(Path.Combine(_storagePath, "queues")));
         builder.Services.AddSingleton<TableServiceClient>(
-            FileTableServiceClient.FromAccount(account));
+            new FileTableServiceClient(Path.Combine(_storagePath, "tables")));
 
         builder.Services.AddStorageServer();
 

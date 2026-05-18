@@ -13,47 +13,47 @@ namespace Iciclecreek.Azure.Storage.SQLite.Tables;
 /// </summary>
 public class SqliteTableServiceClient : TableServiceClient
 {
-    internal readonly SqliteStorageAccount _account;
+    internal readonly SqliteDb Db;
+    private readonly string _accountName;
+    private readonly Uri _tableServiceUri;
 
-    /// <summary>Initializes a new <see cref="SqliteTableServiceClient"/> from a <see cref="SqliteStorageAccount"/>.</summary>
-    public SqliteTableServiceClient(SqliteStorageAccount account) : base()
+    public SqliteTableServiceClient(string dbPath) : base()
     {
-        _account = account;
+        Db = new SqliteDb(dbPath);
+        _accountName = string.Empty;
+        _tableServiceUri = new Uri("sqlite://table/");
     }
 
-    /// <summary>Creates a new <see cref="SqliteTableServiceClient"/> directly from a <see cref="SqliteStorageAccount"/>.</summary>
-    public static SqliteTableServiceClient FromAccount(SqliteStorageAccount account) => new(account);
-
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _accountName;
     /// <inheritdoc/>
-    public override Uri Uri => _account.TableServiceUri;
+    public override Uri Uri => _tableServiceUri;
 
     // ---- GetTableClient ----
 
     /// <inheritdoc/>
-    public override TableClient GetTableClient(string tableName) => new SqliteTableClient(_account, tableName);
+    public override TableClient GetTableClient(string tableName) => new SqliteTableClient(this, tableName);
 
     // ---- CreateTable ----
 
     /// <inheritdoc/>
     public override Response<TableItem> CreateTable(string tableName, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteTableClient(_account, tableName);
+        var client = new SqliteTableClient(this, tableName);
         return client.Create(cancellationToken);
     }
 
     /// <inheritdoc/>
     public override Response<TableItem> CreateTableIfNotExists(string tableName, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteTableClient(_account, tableName);
+        var client = new SqliteTableClient(this, tableName);
         return client.CreateIfNotExists(cancellationToken);
     }
 
     /// <inheritdoc/>
     public override Response DeleteTable(string tableName, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteTableClient(_account, tableName);
+        var client = new SqliteTableClient(this, tableName);
         return client.Delete(cancellationToken);
     }
 
@@ -75,7 +75,7 @@ public class SqliteTableServiceClient : TableServiceClient
     public override Pageable<TableItem> Query(string? filter = null, int? maxPerPage = null, CancellationToken cancellationToken = default)
     {
         var items = new List<TableItem>();
-        using var conn = _account.Db.Open();
+        using var conn = Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT Name FROM Tables ORDER BY Name";
         using var reader = cmd.ExecuteReader();
@@ -135,9 +135,9 @@ public class SqliteTableServiceClient : TableServiceClient
 
     // ---- Remaining virtual methods ----
     /// <inheritdoc/>
-    public override Uri GenerateSasUri(TableAccountSasPermissions permissions, TableAccountSasResourceTypes resourceTypes, DateTimeOffset expiresOn) => _account.TableServiceUri;
+    public override Uri GenerateSasUri(TableAccountSasPermissions permissions, TableAccountSasResourceTypes resourceTypes, DateTimeOffset expiresOn) => _tableServiceUri;
     /// <inheritdoc/>
-    public override Uri GenerateSasUri(TableAccountSasBuilder builder) => _account.TableServiceUri;
+    public override Uri GenerateSasUri(TableAccountSasBuilder builder) => _tableServiceUri;
     /// <inheritdoc/>
     public override TableAccountSasBuilder GetSasBuilder(TableAccountSasPermissions permissions, TableAccountSasResourceTypes resourceTypes, DateTimeOffset expiresOn) => new TableAccountSasBuilder(permissions, resourceTypes, expiresOn);
     /// <inheritdoc/>

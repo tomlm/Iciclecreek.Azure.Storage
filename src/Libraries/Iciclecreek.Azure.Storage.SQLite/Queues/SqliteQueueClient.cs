@@ -13,33 +13,30 @@ namespace Iciclecreek.Azure.Storage.SQLite.Queues;
 /// </summary>
 public class SqliteQueueClient : QueueClient
 {
-    private readonly SqliteStorageAccount _account;
+    private readonly SqliteQueueServiceClient _serviceClient;
     private readonly string _queueName;
 
-    internal SqliteQueueClient(SqliteStorageAccount account, string queueName) : base()
+    internal SqliteQueueClient(SqliteQueueServiceClient serviceClient, string queueName) : base()
     {
-        _account = account;
+        _serviceClient = serviceClient;
         _queueName = queueName;
     }
-
-    /// <summary>Creates a new <see cref="SqliteQueueClient"/> directly from a <see cref="SqliteStorageAccount"/> and queue name.</summary>
-    public static SqliteQueueClient FromAccount(SqliteStorageAccount account, string queueName) => new(account, queueName);
 
     // ── Properties ──────────────────────────────────────────────────────
 
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     /// <inheritdoc/>
     public override string Name => _queueName;
     /// <inheritdoc/>
-    public override Uri Uri => new($"{_account.QueueServiceUri}{_queueName}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_queueName}");
 
     // ── Queue Lifecycle ─────────────────────────────────────────────────
 
     /// <inheritdoc/>
     public override Response Create(IDictionary<string, string>? metadata = null, CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT INTO Queues (Name, Metadata) VALUES (@name, @metadata)";
         cmd.Parameters.AddWithValue("@name", _queueName);
@@ -63,7 +60,7 @@ public class SqliteQueueClient : QueueClient
     /// <inheritdoc/>
     public override Response CreateIfNotExists(IDictionary<string, string>? metadata = null, CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT OR IGNORE INTO Queues (Name, Metadata) VALUES (@name, @metadata)";
         cmd.Parameters.AddWithValue("@name", _queueName);
@@ -79,7 +76,7 @@ public class SqliteQueueClient : QueueClient
     /// <inheritdoc/>
     public override Response Delete(CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var tx = conn.BeginTransaction();
 
         using var delMsgs = conn.CreateCommand();
@@ -109,7 +106,7 @@ public class SqliteQueueClient : QueueClient
     /// <inheritdoc/>
     public override Response<bool> DeleteIfExists(CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var tx = conn.BeginTransaction();
 
         using var delMsgs = conn.CreateCommand();
@@ -137,7 +134,7 @@ public class SqliteQueueClient : QueueClient
     /// <inheritdoc/>
     public override Response<bool> Exists(CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT 1 FROM Queues WHERE Name = @name";
         cmd.Parameters.AddWithValue("@name", _queueName);
@@ -154,7 +151,7 @@ public class SqliteQueueClient : QueueClient
     /// <inheritdoc/>
     public override Response<QueueProperties> GetProperties(CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
 
         // Check queue exists and get metadata
         using var qCmd = conn.CreateCommand();
@@ -187,7 +184,7 @@ public class SqliteQueueClient : QueueClient
     /// <inheritdoc/>
     public override Response SetMetadata(IDictionary<string, string>? metadata, CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
 
         // Check exists
         using var chk = conn.CreateCommand();
@@ -232,7 +229,7 @@ public class SqliteQueueClient : QueueClient
         var expiresOn = ttl == TimeSpan.FromSeconds(-1) ? DateTimeOffset.MaxValue : now.Add(ttl);
         var nextVisibleOn = now.Add(visibilityTimeout ?? TimeSpan.Zero);
 
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT INTO Messages (QueueName, MessageId, PopReceipt, MessageText, InsertedOn, ExpiresOn, NextVisibleOn, DequeueCount) VALUES (@queue, @mid, @pop, @text, @ins, @exp, @nvo, 0)";
         cmd.Parameters.AddWithValue("@queue", _queueName);
@@ -279,7 +276,7 @@ public class SqliteQueueClient : QueueClient
         var visTimeout = visibilityTimeout ?? TimeSpan.FromSeconds(30);
         var messages = new List<QueueMessage>();
 
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var tx = conn.BeginTransaction();
 
         // First, delete expired messages
@@ -392,7 +389,7 @@ public class SqliteQueueClient : QueueClient
         var max = maxMessages ?? 1;
         var messages = new List<PeekedMessage>();
 
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT MessageId, MessageText, DequeueCount, InsertedOn, ExpiresOn FROM Messages WHERE QueueName = @queue AND NextVisibleOn <= @now AND ExpiresOn > @now ORDER BY InsertedOn LIMIT @max";
@@ -442,7 +439,7 @@ public class SqliteQueueClient : QueueClient
     /// <inheritdoc/>
     public override Response DeleteMessage(string messageId, string popReceipt, CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM Messages WHERE QueueName = @queue AND MessageId = @mid AND PopReceipt = @pop";
         cmd.Parameters.AddWithValue("@queue", _queueName);
@@ -469,7 +466,7 @@ public class SqliteQueueClient : QueueClient
         var newPopReceipt = Guid.NewGuid().ToString();
         var newNextVisibleOn = now.Add(visibilityTimeout);
 
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
 
         if (messageText != null)
@@ -518,7 +515,7 @@ public class SqliteQueueClient : QueueClient
     {
         EnsureQueueExists();
 
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM Messages WHERE QueueName = @queue";
         cmd.Parameters.AddWithValue("@queue", _queueName);
@@ -535,7 +532,7 @@ public class SqliteQueueClient : QueueClient
 
     private void EnsureQueueExists()
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT 1 FROM Queues WHERE Name = @name";
         cmd.Parameters.AddWithValue("@name", _queueName);

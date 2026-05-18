@@ -24,7 +24,7 @@ public abstract class QueueServiceClientTestsBase
     {
         var svc = _fixture.CreateQueueServiceClient();
         Assert.That(svc, Is.Not.Null);
-        Assert.That(svc.AccountName, Is.Not.Null.And.Not.Empty);
+        Assert.That(svc.AccountName, Is.Not.Null);
     }
 
     // ── GetQueues_Lists_Created_Queues ──────────────────────────────────

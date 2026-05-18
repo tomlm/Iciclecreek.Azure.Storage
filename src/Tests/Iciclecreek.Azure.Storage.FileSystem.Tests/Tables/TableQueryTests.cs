@@ -16,7 +16,7 @@ public class TableQueryTests
 
     private FileTableClient SetupPeopleTable()
     {
-        var client = FileTableClient.FromAccount(_root.Account, "people");
+        var client = _root.TableService.GetTableClient("people") as FileTableClient;
         client.CreateIfNotExists();
         client.AddEntity(new TableEntity("users", "alice") { ["Name"] = "Alice", ["Age"] = 30 });
         client.AddEntity(new TableEntity("users", "bob") { ["Name"] = "Bob", ["Age"] = 25 });
@@ -70,7 +70,7 @@ public class TableQueryTests
     [Test]
     public void ServiceClient_Lists_Tables()
     {
-        var service = FileTableServiceClient.FromAccount(_root.Account);
+        var service = _root.TableService;
         service.CreateTable("alpha");
         service.CreateTable("beta");
 
@@ -82,7 +82,7 @@ public class TableQueryTests
 
     private async Task<FileTableClient> SetupPeopleTableAsync()
     {
-        var client = FileTableClient.FromAccount(_root.Account, "people");
+        var client = _root.TableService.GetTableClient("people") as FileTableClient;
         await client.CreateIfNotExistsAsync();
         await client.AddEntityAsync(new TableEntity("users", "alice") { ["Name"] = "Alice", ["Age"] = 30 });
         await client.AddEntityAsync(new TableEntity("users", "bob") { ["Name"] = "Bob", ["Age"] = 25 });
@@ -141,7 +141,7 @@ public class TableQueryTests
     [Test]
     public async Task ServiceClient_Lists_Tables_Async()
     {
-        var service = FileTableServiceClient.FromAccount(_root.Account);
+        var service = _root.TableService;
         service.CreateTable("alpha");
         service.CreateTable("beta");
 

@@ -1,7 +1,6 @@
 using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
-using Iciclecreek.Azure.Storage.FileSystem.Internal;
 using System.Linq;
 
 namespace Iciclecreek.Azure.Storage.FileSystem.Blobs;
@@ -9,52 +8,37 @@ namespace Iciclecreek.Azure.Storage.FileSystem.Blobs;
 /// <summary>Filesystem-backed drop-in replacement for <see cref="Azure.Storage.Blobs.BlobServiceClient"/>. Manages blob containers as subdirectories.</summary>
 public class FileBlobServiceClient : BlobServiceClient
 {
-    internal readonly FileStorageAccount _account;
+    internal readonly string BlobsRootPath;
+    internal readonly FileStorageOptions Options;
+    private readonly string _accountName;
+    private readonly Uri _blobServiceUri;
 
-    /// <summary>Initializes a new <see cref="FileBlobServiceClient"/> from a connection string and provider.</summary>
-    /// <param name="connectionString">The storage connection string.</param>
-    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
-    public FileBlobServiceClient(string connectionString, FileStorageProvider provider) : base()
+    public FileBlobServiceClient(string blobsRootPath, FileStorageOptions? options = null) : base()
     {
-        _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
+        BlobsRootPath = Path.GetFullPath(blobsRootPath);
+        Directory.CreateDirectory(BlobsRootPath);
+        Options = options ?? new FileStorageOptions();
+        _accountName = string.Empty;
+        _blobServiceUri = new Uri("file://blob/");
     }
-
-    /// <summary>Initializes a new <see cref="FileBlobServiceClient"/> by extracting the account name from a service URI.</summary>
-    /// <param name="serviceUri">The blob service URI.</param>
-    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
-    public FileBlobServiceClient(Uri serviceUri, FileStorageProvider provider) : base()
-    {
-        var name = StorageUriParser.ExtractAccountName(serviceUri, provider.HostnameSuffix)
-            ?? throw new ArgumentException("Cannot determine account name from URI.", nameof(serviceUri));
-        _account = provider.GetAccount(name);
-    }
-
-    internal FileBlobServiceClient(FileStorageAccount account) : base()
-    {
-        _account = account;
-    }
-
-    /// <summary>Creates a new <see cref="FileBlobServiceClient"/> from an existing <see cref="FileStorageAccount"/>.</summary>
-    /// <param name="account">The filesystem-backed storage account.</param>
-    public static FileBlobServiceClient FromAccount(FileStorageAccount account) => new(account);
 
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _accountName;
     /// <inheritdoc/>
-    public override Uri Uri => _account.BlobServiceUri;
+    public override Uri Uri => _blobServiceUri;
 
     // ---- GetBlobContainerClient ----
 
     /// <inheritdoc/>
     public override BlobContainerClient GetBlobContainerClient(string blobContainerName)
-        => new FileBlobContainerClient(_account, blobContainerName);
+        => new FileBlobContainerClient(this, blobContainerName);
 
     // ---- CreateBlobContainer ----
 
     /// <inheritdoc/>
     public override Response<BlobContainerClient> CreateBlobContainer(string blobContainerName, PublicAccessType publicAccessType = default, IDictionary<string, string>? metadata = default, CancellationToken cancellationToken = default)
     {
-        var client = new FileBlobContainerClient(_account, blobContainerName);
+        var client = new FileBlobContainerClient(this, blobContainerName);
         client.Create(publicAccessType, metadata, cancellationToken);
         return Response.FromValue<BlobContainerClient>(client, StubResponse.Created());
     }
@@ -68,7 +52,7 @@ public class FileBlobServiceClient : BlobServiceClient
     /// <inheritdoc/>
     public override Response DeleteBlobContainer(string blobContainerName, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new FileBlobContainerClient(_account, blobContainerName);
+        var client = new FileBlobContainerClient(this, blobContainerName);
         return client.Delete(conditions, cancellationToken);
     }
 
@@ -82,10 +66,10 @@ public class FileBlobServiceClient : BlobServiceClient
     public override Pageable<BlobContainerItem> GetBlobContainers(BlobContainerTraits traits = default, BlobContainerStates states = default, string? prefix = default, CancellationToken cancellationToken = default)
     {
         var items = new List<BlobContainerItem>();
-        if (!Directory.Exists(_account.BlobsRootPath))
+        if (!Directory.Exists(BlobsRootPath))
             return new StaticPageable<BlobContainerItem>(items);
 
-        foreach (var dir in Directory.EnumerateDirectories(_account.BlobsRootPath).OrderBy(d => Path.GetFileName(d), StringComparer.Ordinal))
+        foreach (var dir in Directory.EnumerateDirectories(BlobsRootPath).OrderBy(d => Path.GetFileName(d), StringComparer.Ordinal))
         {
             var name = Path.GetFileName(dir);
             if (name.StartsWith('.') || name.StartsWith('_')) continue;
@@ -172,7 +156,7 @@ public class FileBlobServiceClient : BlobServiceClient
         if (conditions.Count == 0)
             return new StaticPageable<TaggedBlobItem>(results);
 
-        var blobsRoot = _account.BlobsRootPath;
+        var blobsRoot = BlobsRootPath;
         if (!Directory.Exists(blobsRoot))
             return new StaticPageable<TaggedBlobItem>(results);
 
@@ -181,7 +165,7 @@ public class FileBlobServiceClient : BlobServiceClient
             var containerName = Path.GetFileName(containerDir);
             if (containerName.StartsWith('.') || containerName.StartsWith('_')) continue;
 
-            var store = new Internal.BlobStore(_account, containerName);
+            var store = new Internal.BlobStore(BlobsRootPath, containerName, Options);
             foreach (var (blobName, _, _) in store.EnumerateBlobs(null))
             {
                 ct.ThrowIfCancellationRequested();

@@ -4,73 +4,56 @@ using Azure.Data.Tables;
 using Azure.Data.Tables.Models;
 using Azure.Data.Tables.Sas;
 using Iciclecreek.Azure.Storage.FileSystem.Blobs;
-using Iciclecreek.Azure.Storage.FileSystem.Internal;
 
 namespace Iciclecreek.Azure.Storage.FileSystem.Tables;
 
 /// <summary>Filesystem-backed drop-in replacement for <see cref="Azure.Data.Tables.TableServiceClient"/>. Each table is a subdirectory under the account's tables path.</summary>
 public class FileTableServiceClient : TableServiceClient
 {
-    internal readonly FileStorageAccount _account;
+    internal readonly string TablesRootPath;
+    internal readonly FileStorageOptions Options;
+    private readonly string _accountName;
+    private readonly Uri _tableServiceUri;
 
-    /// <summary>Initializes a new <see cref="FileTableServiceClient"/> from a connection string and storage provider.</summary>
-    /// <param name="connectionString">The connection string identifying the storage account.</param>
-    /// <param name="provider">The filesystem storage provider that manages account root paths.</param>
-    public FileTableServiceClient(string connectionString, FileStorageProvider provider) : base()
+    public FileTableServiceClient(string tablesRootPath, FileStorageOptions? options = null) : base()
     {
-        _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
+        TablesRootPath = Path.GetFullPath(tablesRootPath);
+        Directory.CreateDirectory(TablesRootPath);
+        Options = options ?? new FileStorageOptions();
+        _accountName = string.Empty;
+        _tableServiceUri = new Uri("file://table/");
     }
-
-    /// <summary>Initializes a new <see cref="FileTableServiceClient"/> from a service URI and storage provider.</summary>
-    /// <param name="serviceUri">The URI of the table service endpoint.</param>
-    /// <param name="provider">The filesystem storage provider that manages account root paths.</param>
-    public FileTableServiceClient(Uri serviceUri, FileStorageProvider provider) : base()
-    {
-        var name = StorageUriParser.ExtractAccountName(serviceUri, provider.HostnameSuffix)
-            ?? throw new ArgumentException("Cannot determine account name from URI.", nameof(serviceUri));
-        _account = provider.GetAccount(name);
-    }
-
-    internal FileTableServiceClient(FileStorageAccount account) : base()
-    {
-        _account = account;
-    }
-
-    /// <summary>Creates a new <see cref="FileTableServiceClient"/> directly from a <see cref="FileStorageAccount"/>.</summary>
-    /// <param name="account">The filesystem storage account.</param>
-    /// <returns>A new <see cref="FileTableServiceClient"/> instance.</returns>
-    public static FileTableServiceClient FromAccount(FileStorageAccount account) => new(account);
 
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _accountName;
     /// <inheritdoc/>
-    public override Uri Uri => _account.TableServiceUri;
+    public override Uri Uri => _tableServiceUri;
 
     // ---- GetTableClient ----
 
     /// <inheritdoc/>
-    public override TableClient GetTableClient(string tableName) => new FileTableClient(_account, tableName);
+    public override TableClient GetTableClient(string tableName) => new FileTableClient(this, tableName);
 
     // ---- CreateTable ----
 
     /// <inheritdoc/>
     public override Response<TableItem> CreateTable(string tableName, CancellationToken cancellationToken = default)
     {
-        var client = new FileTableClient(_account, tableName);
+        var client = new FileTableClient(this, tableName);
         return client.Create(cancellationToken);
     }
 
     /// <inheritdoc/>
     public override Response<TableItem> CreateTableIfNotExists(string tableName, CancellationToken cancellationToken = default)
     {
-        var client = new FileTableClient(_account, tableName);
+        var client = new FileTableClient(this, tableName);
         return client.CreateIfNotExists(cancellationToken);
     }
 
     /// <inheritdoc/>
     public override Response DeleteTable(string tableName, CancellationToken cancellationToken = default)
     {
-        var client = new FileTableClient(_account, tableName);
+        var client = new FileTableClient(this, tableName);
         return client.Delete(cancellationToken);
     }
 
@@ -92,10 +75,10 @@ public class FileTableServiceClient : TableServiceClient
     public override Pageable<TableItem> Query(string? filter = null, int? maxPerPage = null, CancellationToken cancellationToken = default)
     {
         var items = new List<TableItem>();
-        if (!Directory.Exists(_account.TablesRootPath))
+        if (!Directory.Exists(TablesRootPath))
             return new StaticPageable<TableItem>(items);
 
-        foreach (var dir in Directory.EnumerateDirectories(_account.TablesRootPath).OrderBy(d => Path.GetFileName(d), StringComparer.Ordinal))
+        foreach (var dir in Directory.EnumerateDirectories(TablesRootPath).OrderBy(d => Path.GetFileName(d), StringComparer.Ordinal))
         {
             var name = Path.GetFileName(dir);
             if (name.StartsWith('.') || name.StartsWith('_')) continue;
@@ -152,9 +135,9 @@ public class FileTableServiceClient : TableServiceClient
 
     // ---- Remaining virtual methods ----
     /// <inheritdoc/>
-    public override Uri GenerateSasUri(TableAccountSasPermissions permissions, TableAccountSasResourceTypes resourceTypes, DateTimeOffset expiresOn) => _account.TableServiceUri;
+    public override Uri GenerateSasUri(TableAccountSasPermissions permissions, TableAccountSasResourceTypes resourceTypes, DateTimeOffset expiresOn) => _tableServiceUri;
     /// <inheritdoc/>
-    public override Uri GenerateSasUri(TableAccountSasBuilder builder) => _account.TableServiceUri;
+    public override Uri GenerateSasUri(TableAccountSasBuilder builder) => _tableServiceUri;
     /// <inheritdoc/>
     public override TableAccountSasBuilder GetSasBuilder(TableAccountSasPermissions permissions, TableAccountSasResourceTypes resourceTypes, DateTimeOffset expiresOn) => new TableAccountSasBuilder(permissions, resourceTypes, expiresOn);
     /// <inheritdoc/>

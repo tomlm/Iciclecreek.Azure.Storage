@@ -16,24 +16,21 @@ public class FilePageBlobClient : PageBlobClient
 {
     internal readonly BlobStore _store;
     internal readonly string _blobName;
-    internal readonly FileStorageAccount _account;
+    internal readonly FileBlobServiceClient _serviceClient;
 
-    internal FilePageBlobClient(FileStorageAccount account, string containerName, string blobName) : base()
+    internal FilePageBlobClient(FileBlobServiceClient serviceClient, string containerName, string blobName) : base()
     {
-        _account = account;
-        _store = new BlobStore(account, containerName);
+        _serviceClient = serviceClient;
+        _store = new BlobStore(serviceClient.BlobsRootPath, containerName, serviceClient.Options);
         _blobName = blobName;
     }
 
-    public static FilePageBlobClient FromAccount(FileStorageAccount account, string containerName, string blobName)
-        => new(account, containerName, blobName);
-
     // ── Properties ──────────────────────────────────────────────────────
 
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     public override string BlobContainerName => _store.ContainerName;
     public override string Name => _blobName;
-    public override Uri Uri => new($"{_account.BlobServiceUri}{_store.ContainerName}/{_blobName}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_store.ContainerName}/{_blobName}");
 
     // ── Create ──────────────────────────────────────────────────────────
 
@@ -46,7 +43,6 @@ public class FilePageBlobClient : PageBlobClient
         var dir = Path.GetDirectoryName(blobPath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-        // Create pre-allocated zero-filled file
         await using (var fs = new FileStream(blobPath, FileMode.Create, FileAccess.Write, FileShare.None))
         {
             fs.SetLength(size);
@@ -124,7 +120,6 @@ public class FilePageBlobClient : PageBlobClient
             await fs.WriteAsync(data, ct).ConfigureAwait(false);
         }
 
-        // Track page range
         MergePageRange(sidecar, offset, data.Length);
 
         sidecar.LastModifiedUtc = DateTimeOffset.UtcNow;
@@ -215,7 +210,6 @@ public class FilePageBlobClient : PageBlobClient
         sidecar.LastModifiedUtc = DateTimeOffset.UtcNow;
         sidecar.SequenceNumber++;
         sidecar.ETag = ETagCalculator.Compute(size, sidecar.LastModifiedUtc, null).ToString();
-        // Remove page ranges beyond new size
         sidecar.PageRanges.RemoveAll(r => r.Offset >= size);
         await _store.WriteSidecarAsync(_blobName, sidecar, ct).ConfigureAwait(false);
 
@@ -230,7 +224,7 @@ public class FilePageBlobClient : PageBlobClient
 
     public override async Task<Response<BlobProperties>> GetPropertiesAsync(BlobRequestConditions conditions = default!, CancellationToken ct = default)
     {
-        var blobClient = new FileBlobClient(_account, _store.ContainerName, _blobName);
+        var blobClient = new FileBlobClient(_serviceClient, _store.ContainerName, _blobName);
         return await blobClient.GetPropertiesAsync(conditions, ct).ConfigureAwait(false);
     }
 
@@ -242,7 +236,6 @@ public class FilePageBlobClient : PageBlobClient
     private static void MergePageRange(BlobSidecar sidecar, long offset, long length)
     {
         sidecar.PageRanges.Add(new PageRange { Offset = offset, Length = length });
-        // Simple merge: sort and coalesce overlapping/adjacent ranges
         sidecar.PageRanges = sidecar.PageRanges.OrderBy(r => r.Offset).ToList();
         var merged = new List<PageRange>();
         foreach (var range in sidecar.PageRanges)
@@ -270,11 +263,10 @@ public class FilePageBlobClient : PageBlobClient
             var rEnd = r.Offset + r.Length;
             if (rEnd <= offset || r.Offset >= clearEnd)
             {
-                result.Add(r); // no overlap
+                result.Add(r);
             }
             else
             {
-                // Partial overlaps
                 if (r.Offset < offset)
                     result.Add(new PageRange { Offset = r.Offset, Length = offset - r.Offset });
                 if (rEnd > clearEnd)

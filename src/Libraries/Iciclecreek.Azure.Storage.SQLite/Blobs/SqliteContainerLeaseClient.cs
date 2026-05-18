@@ -32,7 +32,7 @@ public class SqliteContainerLeaseClient : BlobLeaseClient
         if (secs != -1 && (secs < 15 || secs > 60))
             throw new RequestFailedException(400, "Lease duration must be 15-60 seconds or -1 (infinite).", "InvalidHeaderValue", null);
 
-        using var conn = _container._account.Db.Open();
+        using var conn = _container._serviceClient.Db.Open();
 
         // Check for existing active lease
         using (var checkCmd = conn.CreateCommand())
@@ -76,7 +76,7 @@ public class SqliteContainerLeaseClient : BlobLeaseClient
 
     public override async Task<Response<BlobLease>> RenewAsync(RequestConditions? conditions = null, CancellationToken ct = default)
     {
-        using var conn = _container._account.Db.Open();
+        using var conn = _container._serviceClient.Db.Open();
 
         using var checkCmd = conn.CreateCommand();
         checkCmd.CommandText = "SELECT LeaseId, LeaseDurationSeconds FROM Containers WHERE Name = @name";
@@ -110,7 +110,7 @@ public class SqliteContainerLeaseClient : BlobLeaseClient
 
     public override async Task<Response<ReleasedObjectInfo>> ReleaseAsync(RequestConditions? conditions = null, CancellationToken ct = default)
     {
-        using var conn = _container._account.Db.Open();
+        using var conn = _container._serviceClient.Db.Open();
 
         using var checkCmd = conn.CreateCommand();
         checkCmd.CommandText = "SELECT LeaseId FROM Containers WHERE Name = @name";
@@ -136,7 +136,7 @@ public class SqliteContainerLeaseClient : BlobLeaseClient
 
     public override async Task<Response<BlobLease>> ChangeAsync(string proposedId, RequestConditions? conditions = null, CancellationToken ct = default)
     {
-        using var conn = _container._account.Db.Open();
+        using var conn = _container._serviceClient.Db.Open();
 
         using var checkCmd = conn.CreateCommand();
         checkCmd.CommandText = "SELECT LeaseId FROM Containers WHERE Name = @name";
@@ -165,7 +165,7 @@ public class SqliteContainerLeaseClient : BlobLeaseClient
 
     public override async Task<Response<BlobLease>> BreakAsync(TimeSpan? breakPeriod = null, RequestConditions? conditions = null, CancellationToken ct = default)
     {
-        using var conn = _container._account.Db.Open();
+        using var conn = _container._serviceClient.Db.Open();
 
         using var checkCmd = conn.CreateCommand();
         checkCmd.CommandText = "SELECT LeaseId, LeaseExpiresOn, LeaseDurationSeconds FROM Containers WHERE Name = @name";

@@ -11,43 +11,25 @@ namespace Iciclecreek.Azure.Storage.SQLite.Blobs;
 /// <summary>SQLite-backed drop-in replacement for <see cref="BlockBlobClient"/>.</summary>
 public class SqliteBlockBlobClient : BlockBlobClient
 {
-    internal readonly SqliteStorageAccount _account;
+    internal readonly SqliteBlobServiceClient _serviceClient;
     internal readonly string _containerName;
     internal readonly string _blobName;
 
-    public SqliteBlockBlobClient(string connectionString, string containerName, string blobName, SqliteStorageProvider provider) : base()
+    internal SqliteBlockBlobClient(SqliteBlobServiceClient serviceClient, string containerName, string blobName) : base()
     {
-        _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
+        _serviceClient = serviceClient;
         _containerName = containerName;
         _blobName = blobName;
     }
-
-    public SqliteBlockBlobClient(Uri blobUri, SqliteStorageProvider provider) : base()
-    {
-        var (acctName, container, blob) = StorageUriParser.ParseBlobUri(blobUri, provider.HostnameSuffix);
-        _account = provider.GetAccount(acctName);
-        _containerName = container;
-        _blobName = blob ?? throw new ArgumentException("URI must include a blob name.", nameof(blobUri));
-    }
-
-    internal SqliteBlockBlobClient(SqliteStorageAccount account, string containerName, string blobName) : base()
-    {
-        _account = account;
-        _containerName = containerName;
-        _blobName = blobName;
-    }
-
-    public static SqliteBlockBlobClient FromAccount(SqliteStorageAccount account, string containerName, string blobName)
-        => new(account, containerName, blobName);
 
     /// <inheritdoc/>
     public override string Name => _blobName;
     /// <inheritdoc/>
     public override string BlobContainerName => _containerName;
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     /// <inheritdoc/>
-    public override Uri Uri => new($"{_account.BlobServiceUri}{_containerName}/{System.Uri.EscapeDataString(_blobName)}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_containerName}/{System.Uri.EscapeDataString(_blobName)}");
 
     // ---- StageBlock ----
 
@@ -58,7 +40,7 @@ public class SqliteBlockBlobClient : BlockBlobClient
         await content.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
         var data = ms.ToArray();
 
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT OR REPLACE INTO StagedBlocks (ContainerName, BlobName, BlockId, Content, Size) VALUES (@container, @blob, @blockId, @content, @size)";
         cmd.Parameters.AddWithValue("@container", _containerName);
@@ -89,7 +71,7 @@ public class SqliteBlockBlobClient : BlockBlobClient
     /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> CommitBlockListAsync(IEnumerable<string> base64BlockIds, CommitBlockListOptions options = default!, CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
 
         // Assemble content from staged blocks
         using var assembledStream = new MemoryStream();
@@ -191,7 +173,7 @@ public class SqliteBlockBlobClient : BlockBlobClient
     /// <inheritdoc/>
     public override async Task<Response<BlockList>> GetBlockListAsync(BlockListTypes blockListTypes = BlockListTypes.All, string snapshot = default!, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         var committed = new List<BlobBlock>();
         var uncommitted = new List<BlobBlock>();
 
@@ -235,7 +217,7 @@ public class SqliteBlockBlobClient : BlockBlobClient
     /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> UploadAsync(Stream content, BlobUploadOptions options, CancellationToken cancellationToken = default)
     {
-        var blobClient = new SqliteBlobClient(_account, _containerName, _blobName);
+        var blobClient = new SqliteBlobClient(_serviceClient, _containerName, _blobName);
         return await blobClient.UploadCoreAsync(content, options, cancellationToken).ConfigureAwait(false);
     }
 
@@ -256,7 +238,7 @@ public class SqliteBlockBlobClient : BlockBlobClient
     /// <inheritdoc/>
     public override async Task<Response<bool>> ExistsAsync(CancellationToken cancellationToken = default)
     {
-        var blobClient = new SqliteBlobClient(_account, _containerName, _blobName);
+        var blobClient = new SqliteBlobClient(_serviceClient, _containerName, _blobName);
         return await blobClient.ExistsAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -267,7 +249,7 @@ public class SqliteBlockBlobClient : BlockBlobClient
     /// <inheritdoc/>
     public override async Task<Response> DeleteAsync(DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var blobClient = new SqliteBlobClient(_account, _containerName, _blobName);
+        var blobClient = new SqliteBlobClient(_serviceClient, _containerName, _blobName);
         return await blobClient.DeleteAsync(snapshotsOption, conditions, cancellationToken).ConfigureAwait(false);
     }
 
@@ -278,7 +260,7 @@ public class SqliteBlockBlobClient : BlockBlobClient
     /// <inheritdoc/>
     public override async Task<Response<BlobProperties>> GetPropertiesAsync(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var blobClient = new SqliteBlobClient(_account, _containerName, _blobName);
+        var blobClient = new SqliteBlobClient(_serviceClient, _containerName, _blobName);
         return await blobClient.GetPropertiesAsync(conditions, cancellationToken).ConfigureAwait(false);
     }
 
@@ -289,7 +271,7 @@ public class SqliteBlockBlobClient : BlockBlobClient
     /// <inheritdoc/>
     public override async Task<Response<BlobDownloadResult>> DownloadContentAsync(CancellationToken cancellationToken = default)
     {
-        var blobClient = new SqliteBlobClient(_account, _containerName, _blobName);
+        var blobClient = new SqliteBlobClient(_serviceClient, _containerName, _blobName);
         return await blobClient.DownloadContentAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -307,7 +289,7 @@ public class SqliteBlockBlobClient : BlockBlobClient
     /// <inheritdoc/>
     public override async Task<Stream> OpenWriteAsync(bool overwrite, BlockBlobOpenWriteOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var blobClient = new SqliteBlobClient(_account, _containerName, _blobName);
+        var blobClient = new SqliteBlobClient(_serviceClient, _containerName, _blobName);
         return await blobClient.OpenWriteAsync(overwrite, options is null ? null : new BlobOpenWriteOptions
         {
             HttpHeaders = options.HttpHeaders,
@@ -323,7 +305,7 @@ public class SqliteBlockBlobClient : BlockBlobClient
     /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> SyncUploadFromUriAsync(Uri copySource, bool overwrite = false, CancellationToken cancellationToken = default)
     {
-        var blobClient = new SqliteBlobClient(_account, _containerName, _blobName);
+        var blobClient = new SqliteBlobClient(_serviceClient, _containerName, _blobName);
         await blobClient.StartCopyFromUriAsync(copySource, null!, cancellationToken).ConfigureAwait(false);
         return await blobClient.GetPropertiesAsync(cancellationToken: cancellationToken).ConfigureAwait(false) is { } props
             ? Response.FromValue(BlobsModelFactory.BlobContentInfo(props.Value.ETag, props.Value.LastModified, null, null!, null!, null!, 0), StubResponse.Created())

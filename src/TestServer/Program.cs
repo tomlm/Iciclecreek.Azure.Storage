@@ -1,7 +1,6 @@
 using Azure.Data.Tables;
 using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
-using Iciclecreek.Azure.Storage.FileSystem;
 using Iciclecreek.Azure.Storage.FileSystem.Blobs;
 using Iciclecreek.Azure.Storage.FileSystem.Queues;
 using Iciclecreek.Azure.Storage.FileSystem.Tables;
@@ -13,13 +12,10 @@ var builder = WebApplication.CreateBuilder(args);
 var storagePath = builder.Configuration["StoragePath"]
     ?? Path.Combine(Path.GetTempPath(), "__storage_data");
 
-var provider = new FileStorageProvider(storagePath);
-var account = provider.AddAccount("devstoreaccount1");
-
 // ── Register Azure SDK clients backed by the file system ────────────────
-builder.Services.AddSingleton<BlobServiceClient>(FileBlobServiceClient.FromAccount(account));
-builder.Services.AddSingleton<TableServiceClient>(FileTableServiceClient.FromAccount(account));
-builder.Services.AddSingleton<QueueServiceClient>(FileQueueServiceClient.FromAccount(account));
+builder.Services.AddSingleton<BlobServiceClient>(new FileBlobServiceClient(Path.Combine(storagePath, "blobs")));
+builder.Services.AddSingleton<TableServiceClient>(new FileTableServiceClient(Path.Combine(storagePath, "tables")));
+builder.Services.AddSingleton<QueueServiceClient>(new FileQueueServiceClient(Path.Combine(storagePath, "queues")));
 
 // ── Add the Storage REST API controllers ────────────────────────────────
 builder.Services.AddStorageServer();

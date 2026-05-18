@@ -13,53 +13,23 @@ public class FileBlobClient : BlobClient
 {
     internal readonly BlobStore _store;
     internal readonly string _blobName;
-    internal readonly FileStorageAccount _account;
+    internal readonly FileBlobServiceClient _serviceClient;
 
-    /// <summary>Initializes a new <see cref="FileBlobClient"/> from a connection string, container name, blob name, and provider.</summary>
-    /// <param name="connectionString">The storage connection string.</param>
-    /// <param name="containerName">The name of the blob container.</param>
-    /// <param name="blobName">The name of the blob.</param>
-    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
-    public FileBlobClient(string connectionString, string containerName, string blobName, FileStorageProvider provider) : base()
+    internal FileBlobClient(FileBlobServiceClient serviceClient, string containerName, string blobName) : base()
     {
-        _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
-        _store = new BlobStore(_account, containerName);
+        _serviceClient = serviceClient;
+        _store = new BlobStore(serviceClient.BlobsRootPath, containerName, serviceClient.Options);
         _blobName = blobName;
     }
-
-    /// <summary>Initializes a new <see cref="FileBlobClient"/> by parsing a blob URI against the given provider.</summary>
-    /// <param name="blobUri">The blob URI to parse.</param>
-    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
-    public FileBlobClient(Uri blobUri, FileStorageProvider provider) : base()
-    {
-        var (acctName, container, blob) = StorageUriParser.ParseBlobUri(blobUri, provider.HostnameSuffix);
-        _account = provider.GetAccount(acctName);
-        _store = new BlobStore(_account, container);
-        _blobName = blob ?? throw new ArgumentException("URI must include a blob name.", nameof(blobUri));
-    }
-
-    internal FileBlobClient(FileStorageAccount account, string containerName, string blobName) : base()
-    {
-        _account = account;
-        _store = new BlobStore(account, containerName);
-        _blobName = blobName;
-    }
-
-    /// <summary>Creates a new <see cref="FileBlobClient"/> from an existing <see cref="FileStorageAccount"/>.</summary>
-    /// <param name="account">The filesystem-backed storage account.</param>
-    /// <param name="containerName">The name of the blob container.</param>
-    /// <param name="blobName">The name of the blob.</param>
-    public static FileBlobClient FromAccount(FileStorageAccount account, string containerName, string blobName)
-        => new(account, containerName, blobName);
 
     /// <inheritdoc/>
     public override string Name => _blobName;
     /// <inheritdoc/>
     public override string BlobContainerName => _store.ContainerName;
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     /// <inheritdoc/>
-    public override Uri Uri => new($"{_account.BlobServiceUri}{_store.ContainerName}/{System.Uri.EscapeDataString(_blobName)}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_store.ContainerName}/{System.Uri.EscapeDataString(_blobName)}");
 
     // ==== Async Upload (primary) ====
 
@@ -550,22 +520,39 @@ public class FileBlobClient : BlobClient
     public override Response<BlobSnapshotInfo> CreateSnapshot(IDictionary<string, string>? metadata = null, BlobRequestConditions conditions = null!, CancellationToken ct = default)
         => CreateSnapshotAsync(metadata, conditions, ct).GetAwaiter().GetResult();
 
-    // ==== StartCopyFromUri — resolves local blobs or downloads via HttpClient ====
+    // ==== StartCopyFromUri — downloads via HttpClient (no cross-account local resolution) ====
 
     /// <inheritdoc/>
+    private bool TryResolveBlobFromUri(Uri uri, out string container, out string blob)
+    {
+        container = blob = null!;
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 2) return false;
+        container = segments[0];
+        blob = Uri.UnescapeDataString(string.Join("/", segments.Skip(1)));
+        return true;
+    }
+
     public override async Task<CopyFromUriOperation> StartCopyFromUriAsync(Uri source, BlobCopyFromUriOptions options = null!, CancellationToken ct = default)
     {
-        // Try to resolve as a local blob within this provider.
         Stream sourceStream;
-        var acctName = StorageUriParser.ExtractAccountName(source, _account.Provider.HostnameSuffix);
-        if (acctName is not null && _account.Provider.TryGetAccount(acctName, out var srcAccount) && srcAccount is not null)
+
+        // Try to resolve from the same filesystem store
+        if (TryResolveBlobFromUri(source, out var srcContainer, out var srcBlob))
         {
-            var (_, container, blob) = StorageUriParser.ParseBlobUri(source, _account.Provider.HostnameSuffix);
-            var srcStore = new BlobStore(srcAccount, container);
-            var srcPath = srcStore.BlobPath(blob!);
-            if (!File.Exists(srcPath))
-                throw new RequestFailedException(404, "Source blob not found.", "BlobNotFound", null);
-            sourceStream = new FileStream(srcPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            var srcStore = new Internal.BlobStore(_serviceClient.BlobsRootPath, srcContainer, _serviceClient.Options);
+            var srcPath = srcStore.BlobPath(srcBlob);
+            if (File.Exists(srcPath))
+            {
+                var data = await File.ReadAllBytesAsync(srcPath, ct).ConfigureAwait(false);
+                sourceStream = new MemoryStream(data);
+            }
+            else
+            {
+                using var http = new HttpClient();
+                var bytes = await http.GetByteArrayAsync(source).ConfigureAwait(false);
+                sourceStream = new MemoryStream(bytes);
+            }
         }
         else
         {
@@ -574,14 +561,12 @@ public class FileBlobClient : BlobClient
             sourceStream = new MemoryStream(bytes);
         }
 
-        await using (sourceStream)
+        await using var _ = sourceStream;
+
+        await UploadCoreAsync(sourceStream, new BlobUploadOptions
         {
-            await UploadCoreAsync(sourceStream, new BlobUploadOptions
-            {
-                HttpHeaders = options?.SourceConditions is null ? null : null,
-                Metadata = options?.Metadata,
-            }, ct).ConfigureAwait(false);
-        }
+            Metadata = options?.Metadata,
+        }, ct).ConfigureAwait(false);
 
         var copyId = Guid.NewGuid().ToString();
         return new CopyFromUriOperation(copyId, this);
@@ -644,7 +629,6 @@ public class FileBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response<BlobCopyInfo>> SyncCopyFromUriAsync(Uri source, BlobCopyFromUriOptions options = null!, CancellationToken ct = default)
     {
-        // Reuse StartCopyFromUri which does an immediate copy
         await StartCopyFromUriAsync(source, options != null ? new BlobCopyFromUriOptions
         {
             Metadata = options.Metadata,

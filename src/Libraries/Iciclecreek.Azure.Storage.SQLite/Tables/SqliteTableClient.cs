@@ -16,7 +16,7 @@ namespace Iciclecreek.Azure.Storage.SQLite.Tables;
 /// </summary>
 public class SqliteTableClient : TableClient
 {
-    internal readonly SqliteStorageAccount _account;
+    internal readonly SqliteTableServiceClient _serviceClient;
     internal readonly string _tableName;
 
     private static readonly JsonSerializerOptions s_jsonOptions = new()
@@ -24,28 +24,25 @@ public class SqliteTableClient : TableClient
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    internal SqliteTableClient(SqliteStorageAccount account, string tableName) : base()
+    internal SqliteTableClient(SqliteTableServiceClient serviceClient, string tableName) : base()
     {
-        _account = account;
+        _serviceClient = serviceClient;
         _tableName = tableName;
     }
-
-    /// <summary>Creates a new <see cref="SqliteTableClient"/> directly from a <see cref="SqliteStorageAccount"/> and table name.</summary>
-    public static SqliteTableClient FromAccount(SqliteStorageAccount account, string tableName) => new(account, tableName);
 
     /// <inheritdoc/>
     public override string Name => _tableName;
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     /// <inheritdoc/>
-    public override Uri Uri => new($"{_account.TableServiceUri}{_tableName}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_tableName}");
 
     // ---- Create / Delete ----
 
     /// <inheritdoc/>
     public override Response<TableItem> Create(CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT INTO Tables (Name) VALUES (@name)";
         cmd.Parameters.AddWithValue("@name", _tableName);
@@ -63,7 +60,7 @@ public class SqliteTableClient : TableClient
     /// <inheritdoc/>
     public override Response<TableItem> CreateIfNotExists(CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT OR IGNORE INTO Tables (Name) VALUES (@name)";
         cmd.Parameters.AddWithValue("@name", _tableName);
@@ -74,7 +71,7 @@ public class SqliteTableClient : TableClient
     /// <inheritdoc/>
     public override Response Delete(CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var tx = conn.BeginTransaction();
 
         using var delEntities = conn.CreateCommand();
@@ -116,7 +113,7 @@ public class SqliteTableClient : TableClient
         var timestamp = DateTimeOffset.UtcNow;
         var props = SerializeProperties(entity);
 
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT INTO Entities (TableName, PartitionKey, RowKey, ETag, Timestamp, Properties) VALUES (@table, @pk, @rk, @etag, @ts, @props)";
         cmd.Parameters.AddWithValue("@table", _tableName);
@@ -145,7 +142,7 @@ public class SqliteTableClient : TableClient
     /// <inheritdoc/>
     public override async Task<Response<T>> GetEntityAsync<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         var entity = ReadEntity(conn, partitionKey, rowKey);
         if (entity == null)
             throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
@@ -159,7 +156,7 @@ public class SqliteTableClient : TableClient
     /// <inheritdoc/>
     public override async Task<NullableResponse<T>> GetEntityIfExistsAsync<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         var entity = ReadEntity(conn, partitionKey, rowKey);
         if (entity == null)
             return default!;
@@ -176,7 +173,7 @@ public class SqliteTableClient : TableClient
         var etag = NewETag();
         var timestamp = DateTimeOffset.UtcNow;
 
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
 
         if (mode == TableUpdateMode.Replace)
         {
@@ -229,7 +226,7 @@ public class SqliteTableClient : TableClient
         var etag = NewETag();
         var timestamp = DateTimeOffset.UtcNow;
 
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         var existing = ReadEntity(conn, entity.PartitionKey, entity.RowKey);
         if (existing == null)
             throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
@@ -272,7 +269,7 @@ public class SqliteTableClient : TableClient
     {
         var etag = ifMatch == default ? ETag.All : ifMatch;
 
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
 
         if (etag != ETag.All)
         {
@@ -364,7 +361,7 @@ public class SqliteTableClient : TableClient
                 throw new RequestFailedException(400, "All entities in a transaction must have the same PartitionKey.", "InvalidInput", null);
         }
 
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var tx = conn.BeginTransaction();
 
         var responses = new List<Response>();
@@ -565,7 +562,7 @@ public class SqliteTableClient : TableClient
     private List<TableEntity> LoadAllEntities()
     {
         var entities = new List<TableEntity>();
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT PartitionKey, RowKey, ETag, Timestamp, Properties FROM Entities WHERE TableName = @table";
         cmd.Parameters.AddWithValue("@table", _tableName);

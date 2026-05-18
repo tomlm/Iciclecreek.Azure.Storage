@@ -15,7 +15,7 @@ namespace Iciclecreek.Azure.Storage.Memory.Tables;
 /// </summary>
 public class MemoryTableClient : TableClient
 {
-    internal readonly MemoryStorageAccount _account;
+    internal readonly MemoryTableServiceClient _serviceClient;
     internal readonly string _tableName;
 
     private static readonly JsonSerializerOptions s_jsonOptions = new()
@@ -23,28 +23,25 @@ public class MemoryTableClient : TableClient
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    internal MemoryTableClient(MemoryStorageAccount account, string tableName) : base()
+    internal MemoryTableClient(MemoryTableServiceClient serviceClient, string tableName) : base()
     {
-        _account = account;
+        _serviceClient = serviceClient;
         _tableName = tableName;
     }
-
-    /// <summary>Creates a new <see cref="MemoryTableClient"/> directly from a <see cref="MemoryStorageAccount"/> and table name.</summary>
-    public static MemoryTableClient FromAccount(MemoryStorageAccount account, string tableName) => new(account, tableName);
 
     /// <inheritdoc/>
     public override string Name => _tableName;
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     /// <inheritdoc/>
-    public override Uri Uri => new($"{_account.TableServiceUri}{_tableName}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_tableName}");
 
     // ---- Create / Delete ----
 
     /// <inheritdoc/>
     public override Response<TableItem> Create(CancellationToken cancellationToken = default)
     {
-        if (!_account.Tables.TryAdd(_tableName, new TableStore()))
+        if (!_serviceClient.Tables.TryAdd(_tableName, new TableStore()))
             throw new RequestFailedException(409, "Table already exists.", "TableAlreadyExists", null);
         return Response.FromValue(new TableItem(_tableName), StubResponse.Created());
     }
@@ -52,14 +49,14 @@ public class MemoryTableClient : TableClient
     /// <inheritdoc/>
     public override Response<TableItem> CreateIfNotExists(CancellationToken cancellationToken = default)
     {
-        _account.Tables.GetOrAdd(_tableName, _ => new TableStore());
+        _serviceClient.Tables.GetOrAdd(_tableName, _ => new TableStore());
         return Response.FromValue(new TableItem(_tableName), StubResponse.Ok());
     }
 
     /// <inheritdoc/>
     public override Response Delete(CancellationToken cancellationToken = default)
     {
-        if (!_account.Tables.TryRemove(_tableName, out _))
+        if (!_serviceClient.Tables.TryRemove(_tableName, out _))
             throw new RequestFailedException(404, "Table not found.", "ResourceNotFound", null);
         return StubResponse.NoContent();
     }
@@ -135,19 +132,25 @@ public class MemoryTableClient : TableClient
     {
         var table = GetTableStore();
         var key = TableStore.EntityKey(entity.PartitionKey, entity.RowKey);
-        EntityEntry resultEntry;
+        string resultETag = null!;
 
         if (mode == TableUpdateMode.Replace)
         {
             var props = SerializeProperties(entity);
-            resultEntry = table.Entities.AddOrUpdate(key,
-                _ => new EntityEntry { PropertiesJson = props },
+            table.Entities.AddOrUpdate(key,
+                _ =>
+                {
+                    var entry = new EntityEntry { PropertiesJson = props };
+                    resultETag = entry.ETag;
+                    return entry;
+                },
                 (_, existing) =>
                 {
                     lock (existing.Lock)
                     {
                         existing.PropertiesJson = props;
                         existing.Touch();
+                        resultETag = existing.ETag;
                     }
                     return existing;
                 });
@@ -155,8 +158,13 @@ public class MemoryTableClient : TableClient
         else
         {
             // Merge mode
-            resultEntry = table.Entities.AddOrUpdate(key,
-                _ => new EntityEntry { PropertiesJson = SerializeProperties(entity) },
+            table.Entities.AddOrUpdate(key,
+                _ =>
+                {
+                    var entry = new EntityEntry { PropertiesJson = SerializeProperties(entity) };
+                    resultETag = entry.ETag;
+                    return entry;
+                },
                 (_, existing) =>
                 {
                     lock (existing.Lock)
@@ -165,12 +173,13 @@ public class MemoryTableClient : TableClient
                         var merged = MergeEntities(existingTE, entity);
                         existing.PropertiesJson = SerializePropertiesFromTableEntity(merged);
                         existing.Touch();
+                        resultETag = existing.ETag;
                     }
                     return existing;
                 });
         }
 
-        return StubResponse.NoContent(resultEntry.ETag);
+        return StubResponse.NoContent(resultETag);
     }
 
     /// <inheritdoc/>
@@ -186,6 +195,7 @@ public class MemoryTableClient : TableClient
         if (!table.Entities.TryGetValue(key, out var entry))
             throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
 
+        string resultETag;
         lock (entry.Lock)
         {
             // ETag check
@@ -204,9 +214,10 @@ public class MemoryTableClient : TableClient
             }
 
             entry.Touch();
+            resultETag = entry.ETag;
         }
 
-        return StubResponse.NoContent(entry.ETag);
+        return StubResponse.NoContent(resultETag);
     }
 
     /// <inheritdoc/>
@@ -517,7 +528,7 @@ public class MemoryTableClient : TableClient
 
     private TableStore GetTableStore()
     {
-        if (!_account.Tables.TryGetValue(_tableName, out var table))
+        if (!_serviceClient.Tables.TryGetValue(_tableName, out var table))
             throw new RequestFailedException(404, "Table not found.", "TableNotFound", null);
         return table;
     }
@@ -716,7 +727,7 @@ public class MemoryTableClient : TableClient
     /// <inheritdoc/>
     public override TableSasBuilder GetSasBuilder(string rawPermissions, DateTimeOffset expiresOn) => new TableSasBuilder(_tableName, rawPermissions, expiresOn);
 
-    // ---- TypedValue (inline serialization helper matching SQLite/FileSystem format) ----
+    // ---- TypedValue (inline serialization helper matching Sqlite/FileSystem format) ----
 
     private sealed class TypedValue
     {

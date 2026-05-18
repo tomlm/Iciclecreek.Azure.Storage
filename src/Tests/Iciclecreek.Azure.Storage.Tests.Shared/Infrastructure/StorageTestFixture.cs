@@ -7,7 +7,7 @@ namespace Iciclecreek.Azure.Storage.Tests.Shared.Infrastructure;
 
 /// <summary>
 /// Abstract factory for creating storage clients in tests.
-/// Each provider (FileSystem, SQLite) implements this to provide its own client instances.
+/// Each provider (FileSystem, Sqlite) implements this to provide its own client instances.
 /// </summary>
 public abstract class StorageTestFixture : IDisposable
 {

@@ -10,44 +10,28 @@ namespace Iciclecreek.Azure.Storage.SQLite.Blobs;
 /// <summary>SQLite-backed drop-in replacement for <see cref="BlobContainerClient"/>.</summary>
 public class SqliteBlobContainerClient : BlobContainerClient
 {
-    internal readonly SqliteStorageAccount _account;
+    internal readonly SqliteBlobServiceClient _serviceClient;
     internal readonly string _containerName;
 
-    public SqliteBlobContainerClient(string connectionString, string containerName, SqliteStorageProvider provider) : base()
+    internal SqliteBlobContainerClient(SqliteBlobServiceClient serviceClient, string containerName) : base()
     {
-        _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
+        _serviceClient = serviceClient;
         _containerName = containerName;
     }
-
-    public SqliteBlobContainerClient(Uri containerUri, SqliteStorageProvider provider) : base()
-    {
-        var (acctName, container, _) = StorageUriParser.ParseBlobUri(containerUri, provider.HostnameSuffix);
-        _account = provider.GetAccount(acctName);
-        _containerName = container;
-    }
-
-    internal SqliteBlobContainerClient(SqliteStorageAccount account, string containerName) : base()
-    {
-        _account = account;
-        _containerName = containerName;
-    }
-
-    public static SqliteBlobContainerClient FromAccount(SqliteStorageAccount account, string containerName)
-        => new(account, containerName);
 
     /// <inheritdoc/>
     public override string Name => _containerName;
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     /// <inheritdoc/>
-    public override Uri Uri => new($"{_account.BlobServiceUri}{_containerName}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_containerName}");
 
     // ---- Create / CreateIfNotExists ----
 
     /// <inheritdoc/>
     public override Response<BlobContainerInfo> Create(PublicAccessType publicAccessType = default, IDictionary<string, string>? metadata = default, CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         // Check if exists
         using (var checkCmd = conn.CreateCommand())
         {
@@ -75,7 +59,7 @@ public class SqliteBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response<BlobContainerInfo> CreateIfNotExists(PublicAccessType publicAccessType = default, IDictionary<string, string>? metadata = default, CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT OR IGNORE INTO Containers (Name, Metadata, CreatedOn) VALUES (@name, @metadata, @createdOn)";
         cmd.Parameters.AddWithValue("@name", _containerName);
@@ -113,7 +97,7 @@ public class SqliteBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response Delete(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM Containers WHERE Name = @name";
         cmd.Parameters.AddWithValue("@name", _containerName);
@@ -133,7 +117,7 @@ public class SqliteBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response<bool> DeleteIfExists(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM Containers WHERE Name = @name";
         cmd.Parameters.AddWithValue("@name", _containerName);
@@ -151,7 +135,7 @@ public class SqliteBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response<bool> Exists(CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM Containers WHERE Name = @name";
         cmd.Parameters.AddWithValue("@name", _containerName);
@@ -176,16 +160,16 @@ public class SqliteBlobContainerClient : BlobContainerClient
     // ---- GetBlobClient / specialized ----
 
     /// <inheritdoc/>
-    public override BlobClient GetBlobClient(string blobName) => new SqliteBlobClient(_account, _containerName, blobName);
+    public override BlobClient GetBlobClient(string blobName) => new SqliteBlobClient(_serviceClient, _containerName, blobName);
 
     /// <inheritdoc/>
-    protected override BlockBlobClient GetBlockBlobClientCore(string blobName) => new SqliteBlockBlobClient(_account, _containerName, blobName);
+    protected override BlockBlobClient GetBlockBlobClientCore(string blobName) => new SqliteBlockBlobClient(_serviceClient, _containerName, blobName);
 
     /// <inheritdoc/>
-    protected override AppendBlobClient GetAppendBlobClientCore(string blobName) => new SqliteAppendBlobClient(_account, _containerName, blobName);
+    protected override AppendBlobClient GetAppendBlobClientCore(string blobName) => new SqliteAppendBlobClient(_serviceClient, _containerName, blobName);
 
     /// <inheritdoc/>
-    protected override PageBlobClient GetPageBlobClientCore(string blobName) => new SqlitePageBlobClient(_account, _containerName, blobName);
+    protected override PageBlobClient GetPageBlobClientCore(string blobName) => new SqlitePageBlobClient(_serviceClient, _containerName, blobName);
 
     /// <inheritdoc/>
     protected override BlobLeaseClient GetBlobLeaseClientCore(string leaseId) => new SqliteContainerLeaseClient(this, leaseId);
@@ -195,28 +179,28 @@ public class SqliteBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response<BlobContentInfo> UploadBlob(string blobName, Stream content, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteBlobClient(_account, _containerName, blobName);
+        var client = new SqliteBlobClient(_serviceClient, _containerName, blobName);
         return client.Upload(content, false, cancellationToken);
     }
 
     /// <inheritdoc/>
     public override Response<BlobContentInfo> UploadBlob(string blobName, BinaryData content, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteBlobClient(_account, _containerName, blobName);
+        var client = new SqliteBlobClient(_serviceClient, _containerName, blobName);
         return client.Upload(content, false, cancellationToken);
     }
 
     /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> UploadBlobAsync(string blobName, Stream content, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteBlobClient(_account, _containerName, blobName);
+        var client = new SqliteBlobClient(_serviceClient, _containerName, blobName);
         return await client.UploadAsync(content, false, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> UploadBlobAsync(string blobName, BinaryData content, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteBlobClient(_account, _containerName, blobName);
+        var client = new SqliteBlobClient(_serviceClient, _containerName, blobName);
         return await client.UploadAsync(content, false, cancellationToken).ConfigureAwait(false);
     }
 
@@ -225,28 +209,28 @@ public class SqliteBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response DeleteBlob(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteBlobClient(_account, _containerName, blobName);
+        var client = new SqliteBlobClient(_serviceClient, _containerName, blobName);
         return client.Delete(snapshotsOption, conditions, cancellationToken);
     }
 
     /// <inheritdoc/>
     public override Response<bool> DeleteBlobIfExists(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteBlobClient(_account, _containerName, blobName);
+        var client = new SqliteBlobClient(_serviceClient, _containerName, blobName);
         return client.DeleteIfExists(snapshotsOption, conditions, cancellationToken);
     }
 
     /// <inheritdoc/>
     public override async Task<Response> DeleteBlobAsync(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteBlobClient(_account, _containerName, blobName);
+        var client = new SqliteBlobClient(_serviceClient, _containerName, blobName);
         return await client.DeleteAsync(snapshotsOption, conditions, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     public override async Task<Response<bool>> DeleteBlobIfExistsAsync(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new SqliteBlobClient(_account, _containerName, blobName);
+        var client = new SqliteBlobClient(_serviceClient, _containerName, blobName);
         return await client.DeleteIfExistsAsync(snapshotsOption, conditions, cancellationToken).ConfigureAwait(false);
     }
 
@@ -256,7 +240,7 @@ public class SqliteBlobContainerClient : BlobContainerClient
     public override Pageable<BlobItem> GetBlobs(BlobTraits traits = default, BlobStates states = default, string? prefix = default, CancellationToken cancellationToken = default)
     {
         var items = new List<BlobItem>();
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
 
         if (prefix is not null)
@@ -364,7 +348,7 @@ public class SqliteBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response<BlobContainerProperties> GetProperties(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT Metadata, CreatedOn FROM Containers WHERE Name = @name";
         cmd.Parameters.AddWithValue("@name", _containerName);
@@ -391,7 +375,7 @@ public class SqliteBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response<BlobContainerInfo> SetMetadata(IDictionary<string, string> metadata, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE Containers SET Metadata = @metadata WHERE Name = @name";
         cmd.Parameters.AddWithValue("@name", _containerName);

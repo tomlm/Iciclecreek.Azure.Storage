@@ -11,46 +11,20 @@ namespace Iciclecreek.Azure.Storage.FileSystem.Blobs;
 public class FileBlobContainerClient : BlobContainerClient
 {
     internal readonly BlobStore _store;
-    internal readonly FileStorageAccount _account;
+    internal readonly FileBlobServiceClient _serviceClient;
 
-    /// <summary>Initializes a new <see cref="FileBlobContainerClient"/> from a connection string, container name, and provider.</summary>
-    /// <param name="connectionString">The storage connection string.</param>
-    /// <param name="containerName">The name of the blob container.</param>
-    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
-    public FileBlobContainerClient(string connectionString, string containerName, FileStorageProvider provider) : base()
+    internal FileBlobContainerClient(FileBlobServiceClient serviceClient, string containerName) : base()
     {
-        _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
-        _store = new BlobStore(_account, containerName);
+        _serviceClient = serviceClient;
+        _store = new BlobStore(serviceClient.BlobsRootPath, containerName, serviceClient.Options);
     }
-
-    /// <summary>Initializes a new <see cref="FileBlobContainerClient"/> by parsing a container URI against the given provider.</summary>
-    /// <param name="containerUri">The container URI to parse.</param>
-    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
-    public FileBlobContainerClient(Uri containerUri, FileStorageProvider provider) : base()
-    {
-        var (acctName, container, _) = StorageUriParser.ParseBlobUri(containerUri, provider.HostnameSuffix);
-        _account = provider.GetAccount(acctName);
-        _store = new BlobStore(_account, container);
-    }
-
-    internal FileBlobContainerClient(FileStorageAccount account, string containerName) : base()
-    {
-        _account = account;
-        _store = new BlobStore(account, containerName);
-    }
-
-    /// <summary>Creates a new <see cref="FileBlobContainerClient"/> from an existing <see cref="FileStorageAccount"/>.</summary>
-    /// <param name="account">The filesystem-backed storage account.</param>
-    /// <param name="containerName">The name of the blob container.</param>
-    public static FileBlobContainerClient FromAccount(FileStorageAccount account, string containerName)
-        => new(account, containerName);
 
     /// <inheritdoc/>
     public override string Name => _store.ContainerName;
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     /// <inheritdoc/>
-    public override Uri Uri => new($"{_account.BlobServiceUri}{_store.ContainerName}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_store.ContainerName}");
 
     /// <summary>Absolute filesystem path to the container directory.</summary>
     public string ContainerPath => _store.ContainerPath;
@@ -137,56 +111,56 @@ public class FileBlobContainerClient : BlobContainerClient
     // ---- GetBlobClient ----
 
     /// <inheritdoc/>
-    public override BlobClient GetBlobClient(string blobName) => new FileBlobClient(_account, _store.ContainerName, blobName);
+    public override BlobClient GetBlobClient(string blobName) => new FileBlobClient(_serviceClient, _store.ContainerName, blobName);
 
     /// <inheritdoc/>
-    protected override BlockBlobClient GetBlockBlobClientCore(string blobName) => new FileBlockBlobClient(_account, _store.ContainerName, blobName);
+    protected override BlockBlobClient GetBlockBlobClientCore(string blobName) => new FileBlockBlobClient(_serviceClient, _store.ContainerName, blobName);
 
     /// <inheritdoc/>
-    protected override AppendBlobClient GetAppendBlobClientCore(string blobName) => new FileAppendBlobClient(_account, _store.ContainerName, blobName);
+    protected override AppendBlobClient GetAppendBlobClientCore(string blobName) => new FileAppendBlobClient(_serviceClient, _store.ContainerName, blobName);
 
     /// <inheritdoc/>
-    protected override PageBlobClient GetPageBlobClientCore(string blobName) => new FilePageBlobClient(_account, _store.ContainerName, blobName);
+    protected override PageBlobClient GetPageBlobClientCore(string blobName) => new FilePageBlobClient(_serviceClient, _store.ContainerName, blobName);
 
     /// <summary>Strongly-typed alias for <see cref="GetPageBlobClientCore"/>.</summary>
-    public FilePageBlobClient GetFilePageBlobClient(string blobName) => new FilePageBlobClient(_account, _store.ContainerName, blobName);
+    public FilePageBlobClient GetFilePageBlobClient(string blobName) => new FilePageBlobClient(_serviceClient, _store.ContainerName, blobName);
 
     /// <inheritdoc/>
     protected override BlobLeaseClient GetBlobLeaseClientCore(string leaseId) => new FileContainerLeaseClient(this, leaseId);
 
     /// <summary>Strongly-typed alias for <see cref="GetBlockBlobClientCore"/>.</summary>
-    public FileBlockBlobClient GetFileBlockBlobClient(string blobName) => new FileBlockBlobClient(_account, _store.ContainerName, blobName);
+    public FileBlockBlobClient GetFileBlockBlobClient(string blobName) => new FileBlockBlobClient(_serviceClient, _store.ContainerName, blobName);
 
     /// <summary>Strongly-typed alias for <see cref="GetAppendBlobClientCore"/>.</summary>
-    public FileAppendBlobClient GetFileAppendBlobClient(string blobName) => new FileAppendBlobClient(_account, _store.ContainerName, blobName);
+    public FileAppendBlobClient GetFileAppendBlobClient(string blobName) => new FileAppendBlobClient(_serviceClient, _store.ContainerName, blobName);
 
     // ---- UploadBlob ----
 
     /// <inheritdoc/>
     public override Response<BlobContentInfo> UploadBlob(string blobName, Stream content, CancellationToken cancellationToken = default)
     {
-        var client = new FileBlobClient(_account, _store.ContainerName, blobName);
+        var client = new FileBlobClient(_serviceClient, _store.ContainerName, blobName);
         return client.Upload(content, false, cancellationToken);
     }
 
     /// <inheritdoc/>
     public override Response<BlobContentInfo> UploadBlob(string blobName, BinaryData content, CancellationToken cancellationToken = default)
     {
-        var client = new FileBlobClient(_account, _store.ContainerName, blobName);
+        var client = new FileBlobClient(_serviceClient, _store.ContainerName, blobName);
         return client.Upload(content, false, cancellationToken);
     }
 
     /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> UploadBlobAsync(string blobName, Stream content, CancellationToken cancellationToken = default)
     {
-        var client = new FileBlobClient(_account, _store.ContainerName, blobName);
+        var client = new FileBlobClient(_serviceClient, _store.ContainerName, blobName);
         return await client.UploadAsync(content, false, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> UploadBlobAsync(string blobName, BinaryData content, CancellationToken cancellationToken = default)
     {
-        var client = new FileBlobClient(_account, _store.ContainerName, blobName);
+        var client = new FileBlobClient(_serviceClient, _store.ContainerName, blobName);
         return await client.UploadAsync(content, false, cancellationToken).ConfigureAwait(false);
     }
 
@@ -195,28 +169,28 @@ public class FileBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response DeleteBlob(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new FileBlobClient(_account, _store.ContainerName, blobName);
+        var client = new FileBlobClient(_serviceClient, _store.ContainerName, blobName);
         return client.Delete(snapshotsOption, conditions, cancellationToken);
     }
 
     /// <inheritdoc/>
     public override Response<bool> DeleteBlobIfExists(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new FileBlobClient(_account, _store.ContainerName, blobName);
+        var client = new FileBlobClient(_serviceClient, _store.ContainerName, blobName);
         return client.DeleteIfExists(snapshotsOption, conditions, cancellationToken);
     }
 
     /// <inheritdoc/>
     public override async Task<Response> DeleteBlobAsync(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new FileBlobClient(_account, _store.ContainerName, blobName);
+        var client = new FileBlobClient(_serviceClient, _store.ContainerName, blobName);
         return await client.DeleteAsync(snapshotsOption, conditions, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     public override async Task<Response<bool>> DeleteBlobIfExistsAsync(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new FileBlobClient(_account, _store.ContainerName, blobName);
+        var client = new FileBlobClient(_serviceClient, _store.ContainerName, blobName);
         return await client.DeleteIfExistsAsync(snapshotsOption, conditions, cancellationToken).ConfigureAwait(false);
     }
 
@@ -328,7 +302,7 @@ public class FileBlobContainerClient : BlobContainerClient
         if (File.Exists(metaPath))
         {
             var json = File.ReadAllText(metaPath);
-            metadata = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json, _account.Provider.JsonSerializerOptions);
+            metadata = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json, _serviceClient.Options.JsonSerializerOptions);
         }
         var props = BlobsModelFactory.BlobContainerProperties(lastModified: DateTimeOffset.UtcNow, eTag: new ETag("\"0x0\""), metadata: metadata);
         return Response.FromValue(props, StubResponse.Ok());
@@ -345,9 +319,8 @@ public class FileBlobContainerClient : BlobContainerClient
     {
         if (!_store.ContainerExists())
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
-        // Container metadata stored in _container.meta.json
         var metaPath = Path.Combine(_store.ContainerPath, "_container.meta.json");
-        var json = System.Text.Json.JsonSerializer.Serialize(metadata, _account.Provider.JsonSerializerOptions);
+        var json = System.Text.Json.JsonSerializer.Serialize(metadata, _serviceClient.Options.JsonSerializerOptions);
         Iciclecreek.Azure.Storage.FileSystem.Internal.AtomicFile.WriteAllTextAsync(metaPath, json).GetAwaiter().GetResult();
         return Response.FromValue(BlobsModelFactory.BlobContainerInfo(new ETag("\"0x0\""), DateTimeOffset.UtcNow), StubResponse.Ok());
     }
@@ -358,7 +331,7 @@ public class FileBlobContainerClient : BlobContainerClient
         if (!_store.ContainerExists())
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         var metaPath = Path.Combine(_store.ContainerPath, "_container.meta.json");
-        var json = System.Text.Json.JsonSerializer.Serialize(metadata, _account.Provider.JsonSerializerOptions);
+        var json = System.Text.Json.JsonSerializer.Serialize(metadata, _serviceClient.Options.JsonSerializerOptions);
         await Iciclecreek.Azure.Storage.FileSystem.Internal.AtomicFile.WriteAllTextAsync(metaPath, json, cancellationToken).ConfigureAwait(false);
         return Response.FromValue(BlobsModelFactory.BlobContainerInfo(new ETag("\"0x0\""), DateTimeOffset.UtcNow), StubResponse.Ok());
     }
@@ -413,7 +386,7 @@ public class FileBlobContainerClient : BlobContainerClient
     private void PersistContainerMetadata(IDictionary<string, string> metadata)
     {
         var metaPath = Path.Combine(_store.ContainerPath, "_container.meta.json");
-        var json = System.Text.Json.JsonSerializer.Serialize(metadata, _account.Provider.JsonSerializerOptions);
+        var json = System.Text.Json.JsonSerializer.Serialize(metadata, _serviceClient.Options.JsonSerializerOptions);
         Iciclecreek.Azure.Storage.FileSystem.Internal.AtomicFile.WriteAllTextAsync(metaPath, json).GetAwaiter().GetResult();
     }
 }

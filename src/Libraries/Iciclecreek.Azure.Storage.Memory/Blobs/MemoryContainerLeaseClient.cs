@@ -26,7 +26,7 @@ public class MemoryContainerLeaseClient : BlobLeaseClient
 
     private ContainerStore GetStore()
     {
-        if (!_container._account.Containers.TryGetValue(_container._containerName, out var store))
+        if (!_container._serviceClient.Containers.TryGetValue(_container._containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         return store;
     }

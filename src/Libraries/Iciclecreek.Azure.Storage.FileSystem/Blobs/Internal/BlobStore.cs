@@ -7,17 +7,19 @@ namespace Iciclecreek.Azure.Storage.FileSystem.Blobs.Internal;
 
 internal sealed class BlobStore
 {
-    public BlobStore(FileStorageAccount account, string containerName)
+    private readonly string _rootPath;
+    internal readonly FileStorageOptions Options;
+
+    public BlobStore(string blobsRootPath, string containerName, FileStorageOptions options)
     {
-        Account = account;
+        _rootPath = blobsRootPath;
         ContainerName = containerName;
-        ContainerPath = Path.Combine(account.BlobsRootPath, containerName);
+        ContainerPath = Path.Combine(blobsRootPath, containerName);
+        Options = options;
     }
 
-    public FileStorageAccount Account { get; }
     public string ContainerName { get; }
     public string ContainerPath { get; }
-    public FileStorageProvider Provider => Account.Provider;
 
     public bool ContainerExists() => Directory.Exists(ContainerPath);
 
@@ -59,11 +61,11 @@ internal sealed class BlobStore
     }
 
     public Task<BlobSidecar?> ReadSidecarAsync(string blobName, CancellationToken ct = default)
-        => BlobSidecar.ReadFromFileAsync(SidecarPath(blobName), Provider.JsonSerializerOptions, ct);
+        => BlobSidecar.ReadFromFileAsync(SidecarPath(blobName), Options.JsonSerializerOptions, ct);
 
     public async Task WriteSidecarAsync(string blobName, BlobSidecar sidecar, CancellationToken ct = default)
     {
-        var json = JsonSerializer.Serialize(sidecar, Provider.JsonSerializerOptions);
+        var json = JsonSerializer.Serialize(sidecar, Options.JsonSerializerOptions);
         await AtomicFile.WriteAllTextAsync(SidecarPath(blobName), json, ct).ConfigureAwait(false);
     }
 

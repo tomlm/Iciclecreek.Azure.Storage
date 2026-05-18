@@ -36,6 +36,6 @@ internal static class FileLock
         throw new IOException($"Unable to acquire exclusive lock on '{path}' after {retryCount} attempts.", last);
     }
 
-    public static Task<FileStream> AcquireAsync(string path, FileMode mode, FileAccess access, FileStorageProvider provider)
-        => AcquireAsync(path, mode, access, provider.LockRetryCount, provider.LockRetryDelay);
+    public static Task<FileStream> AcquireAsync(string path, FileMode mode, FileAccess access, FileStorageOptions options)
+        => AcquireAsync(path, mode, access, options.LockRetryCount, options.LockRetryDelay);
 }

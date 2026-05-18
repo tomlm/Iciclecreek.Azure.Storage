@@ -12,33 +12,23 @@ namespace Iciclecreek.Azure.Storage.Memory.Queues;
 /// </summary>
 public class MemoryQueueClient : QueueClient
 {
-    private readonly MemoryStorageAccount _account;
+    private readonly MemoryQueueServiceClient _serviceClient;
     private readonly string _queueName;
 
-    internal MemoryQueueClient(MemoryStorageAccount account, string queueName) : base()
+    internal MemoryQueueClient(MemoryQueueServiceClient serviceClient, string queueName) : base()
     {
-        _account = account;
+        _serviceClient = serviceClient;
         _queueName = queueName;
     }
-
-    /// <summary>Creates a new <see cref="MemoryQueueClient"/> from a connection string and provider.</summary>
-    public MemoryQueueClient(string connectionString, string queueName, MemoryStorageProvider provider) : base()
-    {
-        _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
-        _queueName = queueName;
-    }
-
-    /// <summary>Creates a new <see cref="MemoryQueueClient"/> directly from a <see cref="MemoryStorageAccount"/> and queue name.</summary>
-    public static MemoryQueueClient FromAccount(MemoryStorageAccount account, string queueName) => new(account, queueName);
 
     // ── Properties ──────────────────────────────────────────────────────
 
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     /// <inheritdoc/>
     public override string Name => _queueName;
     /// <inheritdoc/>
-    public override Uri Uri => new($"{_account.QueueServiceUri}{_queueName}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_queueName}");
 
     // ── Queue Lifecycle ─────────────────────────────────────────────────
 
@@ -46,7 +36,7 @@ public class MemoryQueueClient : QueueClient
     public override Response Create(IDictionary<string, string>? metadata = null, CancellationToken cancellationToken = default)
     {
         var store = new QueueStore { Metadata = metadata };
-        if (!_account.Queues.TryAdd(_queueName, store))
+        if (!_serviceClient.Queues.TryAdd(_queueName, store))
             throw new RequestFailedException(409, "Queue already exists.", "QueueAlreadyExists", null);
         return StubResponse.Created();
     }
@@ -59,7 +49,7 @@ public class MemoryQueueClient : QueueClient
     public override Response CreateIfNotExists(IDictionary<string, string>? metadata = null, CancellationToken cancellationToken = default)
     {
         var store = new QueueStore { Metadata = metadata };
-        var added = _account.Queues.TryAdd(_queueName, store);
+        var added = _serviceClient.Queues.TryAdd(_queueName, store);
         return added ? StubResponse.Created() : StubResponse.Ok();
     }
 
@@ -70,7 +60,7 @@ public class MemoryQueueClient : QueueClient
     /// <inheritdoc/>
     public override Response Delete(CancellationToken cancellationToken = default)
     {
-        if (!_account.Queues.TryRemove(_queueName, out _))
+        if (!_serviceClient.Queues.TryRemove(_queueName, out _))
             throw new RequestFailedException(404, "Queue not found.", "QueueNotFound", null);
         return StubResponse.NoContent();
     }
@@ -82,7 +72,7 @@ public class MemoryQueueClient : QueueClient
     /// <inheritdoc/>
     public override Response<bool> DeleteIfExists(CancellationToken cancellationToken = default)
     {
-        var deleted = _account.Queues.TryRemove(_queueName, out _);
+        var deleted = _serviceClient.Queues.TryRemove(_queueName, out _);
         return Response.FromValue(deleted, deleted ? StubResponse.NoContent() : StubResponse.Ok());
     }
 
@@ -93,7 +83,7 @@ public class MemoryQueueClient : QueueClient
     /// <inheritdoc/>
     public override Response<bool> Exists(CancellationToken cancellationToken = default)
     {
-        var exists = _account.Queues.ContainsKey(_queueName);
+        var exists = _serviceClient.Queues.ContainsKey(_queueName);
         return Response.FromValue(exists, StubResponse.Ok());
     }
 
@@ -437,7 +427,7 @@ public class MemoryQueueClient : QueueClient
 
     private QueueStore GetStore()
     {
-        if (_account.Queues.TryGetValue(_queueName, out var store))
+        if (_serviceClient.Queues.TryGetValue(_queueName, out var store))
             return store;
         throw new RequestFailedException(404, "Queue not found.", "QueueNotFound", null);
     }

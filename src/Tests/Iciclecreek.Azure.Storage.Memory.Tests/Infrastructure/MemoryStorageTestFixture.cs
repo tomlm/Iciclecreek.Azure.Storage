@@ -2,7 +2,6 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Specialized;
 using Azure.Storage.Queues;
 using Azure.Data.Tables;
-using Iciclecreek.Azure.Storage.Memory;
 using Iciclecreek.Azure.Storage.Memory.Blobs;
 using Iciclecreek.Azure.Storage.Memory.Tables;
 using Iciclecreek.Azure.Storage.Memory.Queues;
@@ -13,47 +12,45 @@ namespace Iciclecreek.Azure.Storage.Memory.Tests.Infrastructure;
 public sealed class MemoryStorageTestFixture : StorageTestFixture
 {
     private readonly string _tempPath;
+    private readonly MemoryBlobServiceClient _blobService = new();
+    private readonly MemoryTableServiceClient _tableService = new();
+    private readonly MemoryQueueServiceClient _queueService = new();
 
     public MemoryStorageTestFixture()
     {
         _tempPath = Path.Combine(Path.GetTempPath(), "mem-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempPath);
-        Provider = new MemoryStorageProvider();
-        Account = Provider.AddAccount("testacct");
     }
 
-    public MemoryStorageProvider Provider { get; }
-    public MemoryStorageAccount Account { get; }
-
     public override string TempPath => _tempPath;
-    public override Uri BlobServiceUri => Account.BlobServiceUri;
+    public override Uri BlobServiceUri => _blobService.Uri;
 
     public override BlobContainerClient CreateBlobContainerClient(string name)
-        => MemoryBlobContainerClient.FromAccount(Account, name);
+        => _blobService.GetBlobContainerClient(name);
 
     public override BlobServiceClient CreateBlobServiceClient()
-        => MemoryBlobServiceClient.FromAccount(Account);
+        => _blobService;
 
     public override BlockBlobClient CreateBlockBlobClient(BlobContainerClient container, string name)
-        => MemoryBlockBlobClient.FromAccount(Account, container.Name, name);
+        => ((MemoryBlobContainerClient)_blobService.GetBlobContainerClient(container.Name)).GetBlockBlobClient(name);
 
     public override AppendBlobClient CreateAppendBlobClient(BlobContainerClient container, string name)
-        => MemoryAppendBlobClient.FromAccount(Account, container.Name, name);
+        => ((MemoryBlobContainerClient)_blobService.GetBlobContainerClient(container.Name)).GetAppendBlobClient(name);
 
     public override PageBlobClient CreatePageBlobClient(BlobContainerClient container, string name)
-        => MemoryPageBlobClient.FromAccount(Account, container.Name, name);
+        => ((MemoryBlobContainerClient)_blobService.GetBlobContainerClient(container.Name)).GetPageBlobClient(name);
 
     public override TableClient CreateTableClient(string name)
-        => MemoryTableClient.FromAccount(Account, name);
+        => _tableService.GetTableClient(name);
 
     public override TableServiceClient CreateTableServiceClient()
-        => MemoryTableServiceClient.FromAccount(Account);
+        => _tableService;
 
     public override QueueClient CreateQueueClient(string name)
-        => MemoryQueueClient.FromAccount(Account, name);
+        => _queueService.GetQueueClient(name);
 
     public override QueueServiceClient CreateQueueServiceClient()
-        => MemoryQueueServiceClient.FromAccount(Account);
+        => _queueService;
 
     public override void Dispose()
     {

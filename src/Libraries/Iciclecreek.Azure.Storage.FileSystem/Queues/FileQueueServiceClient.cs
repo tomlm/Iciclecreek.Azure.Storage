@@ -2,7 +2,6 @@ using Azure;
 using Azure.Storage.Queues;
 using Azure.Storage.Queues.Models;
 using Iciclecreek.Azure.Storage.FileSystem.Blobs;
-using Iciclecreek.Azure.Storage.FileSystem.Internal;
 
 namespace Iciclecreek.Azure.Storage.FileSystem.Queues;
 
@@ -11,41 +10,34 @@ namespace Iciclecreek.Azure.Storage.FileSystem.Queues;
 /// </summary>
 public class FileQueueServiceClient : QueueServiceClient
 {
-    private readonly FileStorageAccount _account;
+    internal readonly string QueuesRootPath;
+    internal readonly FileStorageOptions Options;
+    private readonly string _accountName;
+    private readonly Uri _queueServiceUri;
 
-    internal FileQueueServiceClient(FileStorageAccount account) : base()
+    public FileQueueServiceClient(string queuesRootPath, FileStorageOptions? options = null) : base()
     {
-        _account = account;
+        QueuesRootPath = Path.GetFullPath(queuesRootPath);
+        Directory.CreateDirectory(QueuesRootPath);
+        Options = options ?? new FileStorageOptions();
+        _accountName = string.Empty;
+        _queueServiceUri = new Uri("file://queue/");
     }
-
-    public FileQueueServiceClient(string connectionString, FileStorageProvider provider) : base()
-    {
-        _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
-    }
-
-    public FileQueueServiceClient(Uri serviceUri, FileStorageProvider provider) : base()
-    {
-        var accountName = StorageUriParser.ExtractAccountName(serviceUri, provider.HostnameSuffix)
-            ?? throw new InvalidOperationException("Cannot extract account name from URI.");
-        _account = provider.GetAccount(accountName);
-    }
-
-    public static FileQueueServiceClient FromAccount(FileStorageAccount account) => new(account);
 
     // ── Properties ──────────────────────────────────────────────────────
 
-    public override string AccountName => _account.Name;
-    public override Uri Uri => _account.QueueServiceUri;
+    public override string AccountName => _accountName;
+    public override Uri Uri => _queueServiceUri;
 
     // ── GetQueueClient ──────────────────────────────────────────────────
 
-    public override QueueClient GetQueueClient(string queueName) => new FileQueueClient(_account, queueName);
+    public override QueueClient GetQueueClient(string queueName) => new FileQueueClient(this, queueName);
 
     // ── CreateQueue ─────────────────────────────────────────────────────
 
     public override Response<QueueClient> CreateQueue(string queueName, IDictionary<string, string>? metadata = null, CancellationToken cancellationToken = default)
     {
-        var client = new FileQueueClient(_account, queueName);
+        var client = new FileQueueClient(this, queueName);
         client.Create(metadata, cancellationToken);
         return Response.FromValue<QueueClient>(client, StubResponse.Created());
     }
@@ -60,7 +52,7 @@ public class FileQueueServiceClient : QueueServiceClient
 
     public override Response DeleteQueue(string queueName, CancellationToken cancellationToken = default)
     {
-        var client = new FileQueueClient(_account, queueName);
+        var client = new FileQueueClient(this, queueName);
         client.Delete(cancellationToken);
         return StubResponse.NoContent();
     }
@@ -75,11 +67,10 @@ public class FileQueueServiceClient : QueueServiceClient
 
     public override Pageable<QueueItem> GetQueues(QueueTraits traits = QueueTraits.None, string? prefix = null, CancellationToken cancellationToken = default)
     {
-        var queuesRoot = _account.QueuesRootPath;
-        if (!Directory.Exists(queuesRoot))
+        if (!Directory.Exists(QueuesRootPath))
             return new StaticPageable<QueueItem>(Array.Empty<QueueItem>());
 
-        var items = Directory.EnumerateDirectories(queuesRoot)
+        var items = Directory.EnumerateDirectories(QueuesRootPath)
             .Select(d => Path.GetFileName(d))
             .Where(n => !string.IsNullOrEmpty(n) && !n.StartsWith('.') && !n.StartsWith('_'))
             .Where(n => prefix == null || n.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))

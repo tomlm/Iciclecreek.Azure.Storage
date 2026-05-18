@@ -9,37 +9,21 @@ namespace Iciclecreek.Azure.Storage.Memory.Blobs;
 /// <summary>In-memory drop-in replacement for <see cref="BlobContainerClient"/>.</summary>
 public class MemoryBlobContainerClient : BlobContainerClient
 {
-    internal readonly MemoryStorageAccount _account;
+    internal readonly MemoryBlobServiceClient _serviceClient;
     internal readonly string _containerName;
 
-    public MemoryBlobContainerClient(string connectionString, string containerName, MemoryStorageProvider provider) : base()
+    internal MemoryBlobContainerClient(MemoryBlobServiceClient serviceClient, string containerName) : base()
     {
-        _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
+        _serviceClient = serviceClient;
         _containerName = containerName;
     }
-
-    public MemoryBlobContainerClient(Uri containerUri, MemoryStorageProvider provider) : base()
-    {
-        var (acctName, container, _) = StorageUriParser.ParseBlobUri(containerUri, provider.HostnameSuffix);
-        _account = provider.GetAccount(acctName);
-        _containerName = container;
-    }
-
-    internal MemoryBlobContainerClient(MemoryStorageAccount account, string containerName) : base()
-    {
-        _account = account;
-        _containerName = containerName;
-    }
-
-    public static MemoryBlobContainerClient FromAccount(MemoryStorageAccount account, string containerName)
-        => new(account, containerName);
 
     /// <inheritdoc/>
     public override string Name => _containerName;
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     /// <inheritdoc/>
-    public override Uri Uri => new($"{_account.BlobServiceUri}{_containerName}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_containerName}");
 
     // ---- Create / CreateIfNotExists ----
 
@@ -52,7 +36,7 @@ public class MemoryBlobContainerClient : BlobContainerClient
             CreatedOn = DateTimeOffset.UtcNow
         };
 
-        if (!_account.Containers.TryAdd(_containerName, store))
+        if (!_serviceClient.Containers.TryAdd(_containerName, store))
             throw new RequestFailedException(409, "Container already exists.", "ContainerAlreadyExists", null);
 
         var info = BlobsModelFactory.BlobContainerInfo(new ETag("\"0x0\""), DateTimeOffset.UtcNow);
@@ -71,7 +55,7 @@ public class MemoryBlobContainerClient : BlobContainerClient
             Metadata = metadata is not null ? new Dictionary<string, string>(metadata) : null,
             CreatedOn = DateTimeOffset.UtcNow
         };
-        _account.Containers.TryAdd(_containerName, store);
+        _serviceClient.Containers.TryAdd(_containerName, store);
 
         return Response.FromValue(BlobsModelFactory.BlobContainerInfo(new ETag("\"0x0\""), DateTimeOffset.UtcNow), StubResponse.Created());
     }
@@ -103,7 +87,7 @@ public class MemoryBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response Delete(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        if (!_account.Containers.TryRemove(_containerName, out _))
+        if (!_serviceClient.Containers.TryRemove(_containerName, out _))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         return StubResponse.Accepted();
     }
@@ -111,14 +95,14 @@ public class MemoryBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response<bool> DeleteIfExists(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var removed = _account.Containers.TryRemove(_containerName, out _);
+        var removed = _serviceClient.Containers.TryRemove(_containerName, out _);
         return Response.FromValue(removed, StubResponse.Ok());
     }
 
     /// <inheritdoc/>
     public override Response<bool> Exists(CancellationToken cancellationToken = default)
     {
-        var exists = _account.Containers.ContainsKey(_containerName);
+        var exists = _serviceClient.Containers.ContainsKey(_containerName);
         return Response.FromValue(exists, StubResponse.Ok());
     }
 
@@ -139,16 +123,16 @@ public class MemoryBlobContainerClient : BlobContainerClient
     // ---- GetBlobClient / specialized ----
 
     /// <inheritdoc/>
-    public override BlobClient GetBlobClient(string blobName) => new MemoryBlobClient(_account, _containerName, blobName);
+    public override BlobClient GetBlobClient(string blobName) => new MemoryBlobClient(_serviceClient, _containerName, blobName);
 
     /// <inheritdoc/>
-    protected override BlockBlobClient GetBlockBlobClientCore(string blobName) => new MemoryBlockBlobClient(_account, _containerName, blobName);
+    protected override BlockBlobClient GetBlockBlobClientCore(string blobName) => new MemoryBlockBlobClient(_serviceClient, _containerName, blobName);
 
     /// <inheritdoc/>
-    protected override AppendBlobClient GetAppendBlobClientCore(string blobName) => new MemoryAppendBlobClient(_account, _containerName, blobName);
+    protected override AppendBlobClient GetAppendBlobClientCore(string blobName) => new MemoryAppendBlobClient(_serviceClient, _containerName, blobName);
 
     /// <inheritdoc/>
-    protected override PageBlobClient GetPageBlobClientCore(string blobName) => new MemoryPageBlobClient(_account, _containerName, blobName);
+    protected override PageBlobClient GetPageBlobClientCore(string blobName) => new MemoryPageBlobClient(_serviceClient, _containerName, blobName);
 
     /// <inheritdoc/>
     protected override BlobLeaseClient GetBlobLeaseClientCore(string leaseId) => new MemoryContainerLeaseClient(this, leaseId);
@@ -158,28 +142,28 @@ public class MemoryBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response<BlobContentInfo> UploadBlob(string blobName, Stream content, CancellationToken cancellationToken = default)
     {
-        var client = new MemoryBlobClient(_account, _containerName, blobName);
+        var client = new MemoryBlobClient(_serviceClient, _containerName, blobName);
         return client.Upload(content, false, cancellationToken);
     }
 
     /// <inheritdoc/>
     public override Response<BlobContentInfo> UploadBlob(string blobName, BinaryData content, CancellationToken cancellationToken = default)
     {
-        var client = new MemoryBlobClient(_account, _containerName, blobName);
+        var client = new MemoryBlobClient(_serviceClient, _containerName, blobName);
         return client.Upload(content, false, cancellationToken);
     }
 
     /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> UploadBlobAsync(string blobName, Stream content, CancellationToken cancellationToken = default)
     {
-        var client = new MemoryBlobClient(_account, _containerName, blobName);
+        var client = new MemoryBlobClient(_serviceClient, _containerName, blobName);
         return await client.UploadAsync(content, false, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> UploadBlobAsync(string blobName, BinaryData content, CancellationToken cancellationToken = default)
     {
-        var client = new MemoryBlobClient(_account, _containerName, blobName);
+        var client = new MemoryBlobClient(_serviceClient, _containerName, blobName);
         return await client.UploadAsync(content, false, cancellationToken).ConfigureAwait(false);
     }
 
@@ -188,28 +172,28 @@ public class MemoryBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response DeleteBlob(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new MemoryBlobClient(_account, _containerName, blobName);
+        var client = new MemoryBlobClient(_serviceClient, _containerName, blobName);
         return client.Delete(snapshotsOption, conditions, cancellationToken);
     }
 
     /// <inheritdoc/>
     public override Response<bool> DeleteBlobIfExists(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new MemoryBlobClient(_account, _containerName, blobName);
+        var client = new MemoryBlobClient(_serviceClient, _containerName, blobName);
         return client.DeleteIfExists(snapshotsOption, conditions, cancellationToken);
     }
 
     /// <inheritdoc/>
     public override async Task<Response> DeleteBlobAsync(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new MemoryBlobClient(_account, _containerName, blobName);
+        var client = new MemoryBlobClient(_serviceClient, _containerName, blobName);
         return await client.DeleteAsync(snapshotsOption, conditions, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     public override async Task<Response<bool>> DeleteBlobIfExistsAsync(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new MemoryBlobClient(_account, _containerName, blobName);
+        var client = new MemoryBlobClient(_serviceClient, _containerName, blobName);
         return await client.DeleteIfExistsAsync(snapshotsOption, conditions, cancellationToken).ConfigureAwait(false);
     }
 
@@ -218,7 +202,7 @@ public class MemoryBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Pageable<BlobItem> GetBlobs(BlobTraits traits = default, BlobStates states = default, string? prefix = default, CancellationToken cancellationToken = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
 
         var items = new List<BlobItem>();
@@ -311,7 +295,7 @@ public class MemoryBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response<BlobContainerProperties> GetProperties(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
 
         var metadata = store.Metadata is not null ? new Dictionary<string, string>(store.Metadata) : null;
@@ -328,7 +312,7 @@ public class MemoryBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Response<BlobContainerInfo> SetMetadata(IDictionary<string, string> metadata, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
 
         store.Metadata = new Dictionary<string, string>(metadata);

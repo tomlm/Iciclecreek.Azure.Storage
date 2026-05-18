@@ -8,17 +8,19 @@ namespace Iciclecreek.Azure.Storage.FileSystem.Tables.Internal;
 
 internal sealed class TableStore
 {
-    public TableStore(FileStorageAccount account, string tableName)
+    private readonly string _rootPath;
+    internal readonly FileStorageOptions Options;
+
+    public TableStore(string tablesRootPath, string tableName, FileStorageOptions options)
     {
-        Account = account;
+        _rootPath = tablesRootPath;
         TableName = tableName;
-        TablePath = Path.Combine(account.TablesRootPath, tableName);
+        TablePath = Path.Combine(tablesRootPath, tableName);
+        Options = options;
     }
 
-    public FileStorageAccount Account { get; }
     public string TableName { get; }
     public string TablePath { get; }
-    public FileStorageProvider Provider => Account.Provider;
 
     public bool TableExists() => Directory.Exists(TablePath);
 
@@ -55,7 +57,7 @@ internal sealed class TableStore
             throw new RequestFailedException(409, "Entity already exists.", "EntityAlreadyExists", null);
 
         var etag = GenerateETag();
-        var json = EntitySerializer.Serialize(entity, etag, Provider.JsonSerializerOptions);
+        var json = EntitySerializer.Serialize(entity, etag, Options.JsonSerializerOptions);
         await AtomicFile.WriteAllTextAsync(path, json, ct).ConfigureAwait(false);
         return etag;
     }
@@ -65,8 +67,8 @@ internal sealed class TableStore
         var path = EntityPath(pk, rk);
         if (!File.Exists(path))
             throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
-        var json = await File.ReadAllTextAsync(path, ct).ConfigureAwait(false);
-        return EntitySerializer.Deserialize(json, Provider.JsonSerializerOptions);
+        var json = await AtomicFile.ReadAllTextAsync(path, ct).ConfigureAwait(false);
+        return EntitySerializer.Deserialize(json, Options.JsonSerializerOptions);
     }
 
     public bool EntityExists(string pk, string rk) => File.Exists(EntityPath(pk, rk));
@@ -80,15 +82,15 @@ internal sealed class TableStore
         var etag = GenerateETag();
         if (mode == TableUpdateMode.Merge && File.Exists(path))
         {
-            var existingJson = await File.ReadAllTextAsync(path, ct).ConfigureAwait(false);
-            var existing = EntitySerializer.Deserialize(existingJson, Provider.JsonSerializerOptions);
+            var existingJson = await AtomicFile.ReadAllTextAsync(path, ct).ConfigureAwait(false);
+            var existing = EntitySerializer.Deserialize(existingJson, Options.JsonSerializerOptions);
             var merged = EntitySerializer.MergeEntities(existing, entity);
-            var json = EntitySerializer.Serialize(merged, etag, Provider.JsonSerializerOptions);
+            var json = EntitySerializer.Serialize(merged, etag, Options.JsonSerializerOptions);
             await AtomicFile.WriteAllTextAsync(path, json, ct).ConfigureAwait(false);
         }
         else
         {
-            var json = EntitySerializer.Serialize(entity, etag, Provider.JsonSerializerOptions);
+            var json = EntitySerializer.Serialize(entity, etag, Options.JsonSerializerOptions);
             await AtomicFile.WriteAllTextAsync(path, json, ct).ConfigureAwait(false);
         }
         return etag;
@@ -100,16 +102,30 @@ internal sealed class TableStore
         if (!File.Exists(path))
             throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
 
-        if (ifMatch != ETag.All)
-        {
-            var existingJson = await File.ReadAllTextAsync(path, ct).ConfigureAwait(false);
-            var existing = EntitySerializer.Deserialize(existingJson, Provider.JsonSerializerOptions);
-            var existingETag = existing["odata.etag"]?.ToString();
-            if (existingETag != ifMatch.ToString())
-                throw new RequestFailedException(412, "ETag mismatch.", "UpdateConditionNotSatisfied", null);
-        }
+        var etag = GenerateETag();
 
-        return await UpsertEntityAsync(entity, mode, ct).ConfigureAwait(false);
+        // Atomic check-and-write: hold exclusive lock for both ETag check and write
+        await AtomicFile.ReadCheckWriteAsync(path, existingText =>
+        {
+            if (ifMatch != ETag.All)
+            {
+                var existing = EntitySerializer.Deserialize(existingText, Options.JsonSerializerOptions);
+                var existingETag = existing["odata.etag"]?.ToString();
+                if (existingETag != ifMatch.ToString())
+                    throw new RequestFailedException(412, "ETag mismatch.", "UpdateConditionNotSatisfied", null);
+            }
+
+            if (mode == TableUpdateMode.Merge)
+            {
+                var existing = EntitySerializer.Deserialize(existingText, Options.JsonSerializerOptions);
+                var merged = EntitySerializer.MergeEntities(existing, entity);
+                return EntitySerializer.Serialize(merged, etag, Options.JsonSerializerOptions);
+            }
+
+            return EntitySerializer.Serialize(entity, etag, Options.JsonSerializerOptions);
+        }, ct).ConfigureAwait(false);
+
+        return etag;
     }
 
     public async Task DeleteEntityAsync(string pk, string rk, ETag ifMatch, CancellationToken ct = default)
@@ -120,8 +136,8 @@ internal sealed class TableStore
 
         if (ifMatch != ETag.All)
         {
-            var json = await File.ReadAllTextAsync(path, ct).ConfigureAwait(false);
-            var existing = EntitySerializer.Deserialize(json, Provider.JsonSerializerOptions);
+            var json = await AtomicFile.ReadAllTextAsync(path, ct).ConfigureAwait(false);
+            var existing = EntitySerializer.Deserialize(json, Options.JsonSerializerOptions);
             var existingETag = existing["odata.etag"]?.ToString();
             if (existingETag != ifMatch.ToString())
                 throw new RequestFailedException(412, "ETag mismatch.", "UpdateConditionNotSatisfied", null);
@@ -144,8 +160,8 @@ internal sealed class TableStore
                 TableEntity? entity = null;
                 try
                 {
-                    var json = await File.ReadAllTextAsync(file).ConfigureAwait(false);
-                    entity = EntitySerializer.Deserialize(json, Provider.JsonSerializerOptions);
+                    var json = await AtomicFile.ReadAllTextAsync(file).ConfigureAwait(false);
+                    entity = EntitySerializer.Deserialize(json, Options.JsonSerializerOptions);
                 }
                 catch { /* skip corrupted files */ }
                 if (entity is not null) yield return entity;

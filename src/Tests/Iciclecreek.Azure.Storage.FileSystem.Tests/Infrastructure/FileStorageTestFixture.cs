@@ -2,7 +2,6 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Specialized;
 using Azure.Storage.Queues;
 using Azure.Data.Tables;
-using Iciclecreek.Azure.Storage.FileSystem;
 using Iciclecreek.Azure.Storage.FileSystem.Blobs;
 using Iciclecreek.Azure.Storage.FileSystem.Tables;
 using Iciclecreek.Azure.Storage.FileSystem.Queues;
@@ -14,38 +13,37 @@ public sealed class FileStorageTestFixture : StorageTestFixture
 {
     private readonly TempRoot _root = new();
 
-    public FileStorageProvider Provider => _root.Provider;
-    public FileStorageAccount Account => _root.Account;
+    public FileStorageTestFixture()
+    {
+    }
+
+    public FileBlobServiceClient BlobService => _root.BlobService;
+    public FileTableServiceClient TableService => _root.TableService;
+    public FileQueueServiceClient QueueService => _root.QueueService;
+    public string BlobsPath => _root.BlobsPath;
+    public string TablesPath => _root.TablesPath;
+    public string QueuesPath => _root.QueuesPath;
 
     public override string TempPath => _root.Path;
-    public override Uri BlobServiceUri => _root.Account.BlobServiceUri;
+    public override Uri BlobServiceUri => _root.BlobService.Uri;
 
     public override BlobContainerClient CreateBlobContainerClient(string name)
-        => FileBlobContainerClient.FromAccount(_root.Account, name);
-
+        => _root.BlobService.GetBlobContainerClient(name);
     public override BlobServiceClient CreateBlobServiceClient()
-        => FileBlobServiceClient.FromAccount(_root.Account);
-
+        => _root.BlobService;
     public override BlockBlobClient CreateBlockBlobClient(BlobContainerClient container, string name)
-        => ((FileBlobContainerClient)container).GetFileBlockBlobClient(name);
-
+        => ((FileBlobContainerClient)_root.BlobService.GetBlobContainerClient(container.Name)).GetBlockBlobClient(name);
     public override AppendBlobClient CreateAppendBlobClient(BlobContainerClient container, string name)
-        => ((FileBlobContainerClient)container).GetFileAppendBlobClient(name);
-
+        => ((FileBlobContainerClient)_root.BlobService.GetBlobContainerClient(container.Name)).GetAppendBlobClient(name);
     public override PageBlobClient CreatePageBlobClient(BlobContainerClient container, string name)
-        => ((FileBlobContainerClient)container).GetFilePageBlobClient(name);
-
+        => ((FileBlobContainerClient)_root.BlobService.GetBlobContainerClient(container.Name)).GetPageBlobClient(name);
     public override TableClient CreateTableClient(string name)
-        => FileTableClient.FromAccount(_root.Account, name);
-
+        => _root.TableService.GetTableClient(name);
     public override TableServiceClient CreateTableServiceClient()
-        => FileTableServiceClient.FromAccount(_root.Account);
-
+        => _root.TableService;
     public override QueueClient CreateQueueClient(string name)
-        => FileQueueClient.FromAccount(_root.Account, name);
-
+        => _root.QueueService.GetQueueClient(name);
     public override QueueServiceClient CreateQueueServiceClient()
-        => FileQueueServiceClient.FromAccount(_root.Account);
-
+        => _root.QueueService;
     public override void Dispose() => _root.Dispose();
 }

@@ -10,26 +10,23 @@ namespace Iciclecreek.Azure.Storage.SQLite.Blobs;
 /// <summary>SQLite-backed drop-in replacement for <see cref="PageBlobClient"/>.</summary>
 public class SqlitePageBlobClient : PageBlobClient
 {
-    internal readonly SqliteStorageAccount _account;
+    internal readonly SqliteBlobServiceClient _serviceClient;
     internal readonly string _containerName;
     internal readonly string _blobName;
 
-    internal SqlitePageBlobClient(SqliteStorageAccount account, string containerName, string blobName) : base()
+    internal SqlitePageBlobClient(SqliteBlobServiceClient serviceClient, string containerName, string blobName) : base()
     {
-        _account = account;
+        _serviceClient = serviceClient;
         _containerName = containerName;
         _blobName = blobName;
     }
 
-    public static SqlitePageBlobClient FromAccount(SqliteStorageAccount account, string containerName, string blobName)
-        => new(account, containerName, blobName);
-
     // ── Properties ──────────────────────────────────────────────────────
 
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     public override string BlobContainerName => _containerName;
     public override string Name => _blobName;
-    public override Uri Uri => new($"{_account.BlobServiceUri}{_containerName}/{_blobName}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_containerName}/{_blobName}");
 
     // ── Create ──────────────────────────────────────────────────────────
 
@@ -45,7 +42,7 @@ public class SqlitePageBlobClient : PageBlobClient
         // Create zero-filled content
         var content = new byte[size];
 
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"INSERT OR REPLACE INTO Blobs
             (ContainerName, BlobName, BlobType, Content, ContentType, ContentEncoding, ContentLanguage,
@@ -87,7 +84,7 @@ public class SqlitePageBlobClient : PageBlobClient
 
     public override async Task<Response<BlobContentInfo>> CreateIfNotExistsAsync(long size, PageBlobCreateOptions? options = null, CancellationToken ct = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
         using var checkCmd = conn.CreateCommand();
         checkCmd.CommandText = "SELECT ETag, LastModified, SequenceNumber FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
         checkCmd.Parameters.AddWithValue("@container", _containerName);
@@ -123,7 +120,7 @@ public class SqlitePageBlobClient : PageBlobClient
         if (data.Length % 512 != 0)
             throw new RequestFailedException(400, "Page data length must be a multiple of 512.", "InvalidHeaderValue", null);
 
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
 
         // Read existing content
         byte[] existingContent;
@@ -186,7 +183,7 @@ public class SqlitePageBlobClient : PageBlobClient
 
     public override async Task<Response<PageInfo>> ClearPagesAsync(HttpRange range, PageBlobRequestConditions? conditions = null, CancellationToken ct = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
 
         // Read existing content
         byte[] existingContent;
@@ -245,7 +242,7 @@ public class SqlitePageBlobClient : PageBlobClient
 
     public override async Task<Response<PageRangesInfo>> GetPageRangesAsync(HttpRange? range = null, string? snapshot = null, PageBlobRequestConditions? conditions = null, CancellationToken ct = default)
     {
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
 
         // Get blob metadata
         string etag;
@@ -287,7 +284,7 @@ public class SqlitePageBlobClient : PageBlobClient
         if (size % 512 != 0)
             throw new RequestFailedException(400, "Page blob size must be a multiple of 512.", "InvalidHeaderValue", null);
 
-        using var conn = _account.Db.Open();
+        using var conn = _serviceClient.Db.Open();
 
         // Read existing content
         byte[] existingContent;
@@ -349,7 +346,7 @@ public class SqlitePageBlobClient : PageBlobClient
 
     public override async Task<Response<BlobProperties>> GetPropertiesAsync(BlobRequestConditions conditions = default!, CancellationToken ct = default)
     {
-        var blobClient = new SqliteBlobClient(_account, _containerName, _blobName);
+        var blobClient = new SqliteBlobClient(_serviceClient, _containerName, _blobName);
         return await blobClient.GetPropertiesAsync(conditions, ct).ConfigureAwait(false);
     }
 

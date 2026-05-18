@@ -11,43 +11,25 @@ namespace Iciclecreek.Azure.Storage.Memory.Blobs;
 /// <summary>In-memory drop-in replacement for <see cref="BlobClient"/>.</summary>
 public class MemoryBlobClient : BlobClient
 {
-    internal readonly MemoryStorageAccount _account;
+    internal readonly MemoryBlobServiceClient _serviceClient;
     internal readonly string _containerName;
     internal readonly string _blobName;
 
-    public MemoryBlobClient(string connectionString, string containerName, string blobName, MemoryStorageProvider provider) : base()
+    internal MemoryBlobClient(MemoryBlobServiceClient serviceClient, string containerName, string blobName) : base()
     {
-        _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
+        _serviceClient = serviceClient;
         _containerName = containerName;
         _blobName = blobName;
     }
-
-    public MemoryBlobClient(Uri blobUri, MemoryStorageProvider provider) : base()
-    {
-        var (acctName, container, blob) = StorageUriParser.ParseBlobUri(blobUri, provider.HostnameSuffix);
-        _account = provider.GetAccount(acctName);
-        _containerName = container;
-        _blobName = blob ?? throw new ArgumentException("URI must include a blob name.", nameof(blobUri));
-    }
-
-    internal MemoryBlobClient(MemoryStorageAccount account, string containerName, string blobName) : base()
-    {
-        _account = account;
-        _containerName = containerName;
-        _blobName = blobName;
-    }
-
-    public static MemoryBlobClient FromAccount(MemoryStorageAccount account, string containerName, string blobName)
-        => new(account, containerName, blobName);
 
     /// <inheritdoc/>
     public override string Name => _blobName;
     /// <inheritdoc/>
     public override string BlobContainerName => _containerName;
     /// <inheritdoc/>
-    public override string AccountName => _account.Name;
+    public override string AccountName => _serviceClient.AccountName;
     /// <inheritdoc/>
-    public override Uri Uri => new($"{_account.BlobServiceUri}{_containerName}/{System.Uri.EscapeDataString(_blobName)}");
+    public override Uri Uri => new($"{_serviceClient.Uri}{_containerName}/{System.Uri.EscapeDataString(_blobName)}");
 
     // ==== Async Upload (primary) ====
 
@@ -166,7 +148,7 @@ public class MemoryBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response<bool>> ExistsAsync(CancellationToken cancellationToken = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             return Response.FromValue(false, StubResponse.Ok());
         return Response.FromValue(store.Blobs.ContainsKey(_blobName), StubResponse.Ok());
     }
@@ -174,7 +156,7 @@ public class MemoryBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response> DeleteAsync(DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
 
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
@@ -199,7 +181,7 @@ public class MemoryBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response<bool>> DeleteIfExistsAsync(DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             return Response.FromValue(false, StubResponse.Ok());
         var removed = store.Blobs.TryRemove(_blobName, out _);
         return Response.FromValue(removed, StubResponse.Ok());
@@ -208,7 +190,7 @@ public class MemoryBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response<BlobProperties>> GetPropertiesAsync(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
             throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
@@ -236,7 +218,7 @@ public class MemoryBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response<BlobInfo>> SetMetadataAsync(IDictionary<string, string> metadata, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
             throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
@@ -259,7 +241,7 @@ public class MemoryBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response<BlobInfo>> SetHttpHeadersAsync(BlobHttpHeaders httpHeaders, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
             throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
@@ -306,7 +288,7 @@ public class MemoryBlobClient : BlobClient
 
         var conditions = options?.Conditions;
 
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
 
         // Try to get existing entry for conditional checks
@@ -340,7 +322,7 @@ public class MemoryBlobClient : BlobClient
                 existing.LastModified = now;
                 if (options?.Metadata is not null)
                     existing.Metadata = new Dictionary<string, string>(options.Metadata);
-                // Preserve Tags on overwrite (like SQLite impl)
+                // Preserve Tags on overwrite (like Sqlite impl)
             }
         }
         else
@@ -375,7 +357,7 @@ public class MemoryBlobClient : BlobClient
 
     private async Task<Response<BlobDownloadResult>> DownloadContentCoreAsync(BlobRequestConditions? conditions, CancellationToken ct)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
             throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
@@ -578,7 +560,7 @@ public class MemoryBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response> SetAccessTierAsync(AccessTier tier, BlobRequestConditions conditions = null!, RehydratePriority? priority = null, CancellationToken ct = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
             throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
@@ -600,7 +582,7 @@ public class MemoryBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response<BlobSnapshotInfo>> CreateSnapshotAsync(IDictionary<string, string>? metadata = null, BlobRequestConditions conditions = null!, CancellationToken ct = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
             throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
@@ -622,13 +604,13 @@ public class MemoryBlobClient : BlobClient
     public override async Task<CopyFromUriOperation> StartCopyFromUriAsync(Uri source, BlobCopyFromUriOptions options = null!, CancellationToken ct = default)
     {
         Stream sourceStream;
-        var acctName = StorageUriParser.ExtractAccountName(source, _account.Provider.HostnameSuffix);
-        if (acctName is not null && _account.Provider.TryGetAccount(acctName, out var srcAccount) && srcAccount is not null)
+
+        // Try to resolve from the same service client's in-memory containers
+        if (TryResolveBlobFromUri(source, out var srcContainer, out var srcBlob)
+            && _serviceClient.Containers.TryGetValue(srcContainer, out var srcStore)
+            && srcStore.Blobs.TryGetValue(srcBlob, out var srcEntry))
         {
-            var (_, container, blob) = StorageUriParser.ParseBlobUri(source, _account.Provider.HostnameSuffix);
-            var srcClient = new MemoryBlobClient(srcAccount, container, blob!);
-            var downloadResult = await srcClient.DownloadContentAsync(ct).ConfigureAwait(false);
-            sourceStream = downloadResult.Value.Content.ToStream();
+            sourceStream = new MemoryStream(srcEntry.CloneContent());
         }
         else
         {
@@ -676,7 +658,7 @@ public class MemoryBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response<GetBlobTagResult>> GetTagsAsync(BlobRequestConditions conditions = null!, CancellationToken ct = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
             throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
@@ -693,7 +675,7 @@ public class MemoryBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response> SetTagsAsync(IDictionary<string, string> tags, BlobRequestConditions conditions = null!, CancellationToken ct = default)
     {
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
             throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
@@ -722,7 +704,7 @@ public class MemoryBlobClient : BlobClient
             DestinationConditions = options.DestinationConditions,
         } : null!, ct).ConfigureAwait(false);
 
-        if (!_account.Containers.TryGetValue(_containerName, out var store))
+        if (!_serviceClient.Containers.TryGetValue(_containerName, out var store))
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
         if (!store.Blobs.TryGetValue(_blobName, out var entry))
             throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
@@ -738,6 +720,19 @@ public class MemoryBlobClient : BlobClient
     /// <inheritdoc/>
     public override Response<BlobCopyInfo> SyncCopyFromUri(Uri source, BlobCopyFromUriOptions options = null!, CancellationToken ct = default)
         => SyncCopyFromUriAsync(source, options, ct).GetAwaiter().GetResult();
+
+    // ==== Internal helpers ====
+
+    private bool TryResolveBlobFromUri(Uri uri, out string container, out string blob)
+    {
+        container = blob = null!;
+        // Expected format: https://{account}.blob.storage.memory.local/{container}/{blob}
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 2) return false;
+        container = segments[0];
+        blob = Uri.UnescapeDataString(string.Join("/", segments.Skip(1)));
+        return true;
+    }
 
     // ==== Lease ====
 

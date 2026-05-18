@@ -21,7 +21,7 @@ public class TableAdvancedFeatureTests
     [Test]
     public async Task GetEntityIfExists_Returns_Null_For_Missing()
     {
-        var client = FileTableClient.FromAccount(_root.Account, "geif-test");
+        var client = _root.TableService.GetTableClient("geif-test") as FileTableClient;
         await client.CreateIfNotExistsAsync();
 
         var result = await client.GetEntityIfExistsAsync<TableEntity>("pk", "missing");
@@ -33,7 +33,7 @@ public class TableAdvancedFeatureTests
     [Test]
     public async Task GetEntityIfExists_Returns_Value_For_Existing()
     {
-        var client = FileTableClient.FromAccount(_root.Account, "geif-exists");
+        var client = _root.TableService.GetTableClient("geif-exists") as FileTableClient;
         await client.CreateIfNotExistsAsync();
         await client.AddEntityAsync(new TableEntity("pk", "rk") { ["V"] = "found" });
 
@@ -47,7 +47,7 @@ public class TableAdvancedFeatureTests
     [Test]
     public void ServiceClient_Query_FormattableString()
     {
-        var service = FileTableServiceClient.FromAccount(_root.Account);
+        var service = _root.TableService;
         service.CreateTable("alpha");
         service.CreateTable("beta");
 
@@ -63,7 +63,7 @@ public class TableAdvancedFeatureTests
     [Test]
     public void Table_SetAccessPolicy_NoOp()
     {
-        var client = FileTableClient.FromAccount(_root.Account, "ns-table");
+        var client = _root.TableService.GetTableClient("ns-table") as FileTableClient;
         client.CreateIfNotExists();
         Assert.DoesNotThrow(() =>
             client.SetAccessPolicy(Enumerable.Empty<TableSignedIdentifier>()));
@@ -74,7 +74,7 @@ public class TableAdvancedFeatureTests
     [Test]
     public void TableService_GetProperties_Returns_Default()
     {
-        var service = FileTableServiceClient.FromAccount(_root.Account);
+        var service = _root.TableService;
         var props = service.GetProperties().Value;
         Assert.That(props, Is.Not.Null);
     }
@@ -82,7 +82,7 @@ public class TableAdvancedFeatureTests
     [Test]
     public void TableService_GetStatistics_Returns_Stub()
     {
-        var service = FileTableServiceClient.FromAccount(_root.Account);
+        var service = _root.TableService;
         // GetStatistics returns a stub value (may be default)
         Assert.DoesNotThrow(() => service.GetStatistics());
     }

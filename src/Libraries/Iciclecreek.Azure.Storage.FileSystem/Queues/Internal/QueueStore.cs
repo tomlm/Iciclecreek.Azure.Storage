@@ -9,22 +9,23 @@ namespace Iciclecreek.Azure.Storage.FileSystem.Queues.Internal;
 /// </summary>
 internal sealed class QueueStore
 {
-    private readonly FileStorageAccount _account;
+    private readonly string _rootPath;
+    internal readonly FileStorageOptions Options;
 
-    public QueueStore(FileStorageAccount account, string queueName)
+    public QueueStore(string queuesRootPath, string queueName, FileStorageOptions options)
     {
-        _account = account;
+        _rootPath = queuesRootPath;
         QueueName = queueName;
-        QueuePath = Path.Combine(account.QueuesRootPath, queueName);
+        QueuePath = Path.Combine(queuesRootPath, queueName);
         MessagesPath = Path.Combine(QueuePath, "messages");
         MetadataPath = Path.Combine(QueuePath, "_meta.json");
+        Options = options;
     }
 
     public string QueueName { get; }
     public string QueuePath { get; }
     public string MessagesPath { get; }
     public string MetadataPath { get; }
-    public FileStorageProvider Provider => _account.Provider;
 
     // ── Queue CRUD ──────────────────────────────────────────────────────
 
@@ -51,14 +52,14 @@ internal sealed class QueueStore
         if (!File.Exists(MetadataPath))
             return new Dictionary<string, string>();
         var json = File.ReadAllText(MetadataPath);
-        return JsonSerializer.Deserialize<Dictionary<string, string>>(json, Provider.JsonSerializerOptions)
+        return JsonSerializer.Deserialize<Dictionary<string, string>>(json, Options.JsonSerializerOptions)
             ?? new Dictionary<string, string>();
     }
 
     public void WriteMetadata(IDictionary<string, string> metadata)
     {
         Directory.CreateDirectory(QueuePath);
-        var json = JsonSerializer.Serialize(metadata, Provider.JsonSerializerOptions);
+        var json = JsonSerializer.Serialize(metadata, Options.JsonSerializerOptions);
         AtomicFile.WriteAllTextAsync(MetadataPath, json).GetAwaiter().GetResult();
     }
 
@@ -82,7 +83,7 @@ internal sealed class QueueStore
             DequeueCount = 0
         };
 
-        var json = JsonSerializer.Serialize(msg, Provider.JsonSerializerOptions);
+        var json = JsonSerializer.Serialize(msg, Options.JsonSerializerOptions);
         await AtomicFile.WriteAllTextAsync(MessagePath(msg.MessageId), json, ct).ConfigureAwait(false);
         return msg;
     }
@@ -105,7 +106,7 @@ internal sealed class QueueStore
             try
             {
                 var json = await File.ReadAllTextAsync(file, ct).ConfigureAwait(false);
-                var msg = JsonSerializer.Deserialize<QueueMessageFile>(json, Provider.JsonSerializerOptions);
+                var msg = JsonSerializer.Deserialize<QueueMessageFile>(json, Options.JsonSerializerOptions);
                 if (msg == null) continue;
 
                 // Skip expired
@@ -123,7 +124,7 @@ internal sealed class QueueStore
                 msg.PopReceipt = Guid.NewGuid().ToString();
                 msg.NextVisibleOn = now + visibilityTimeout;
 
-                var updated = JsonSerializer.Serialize(msg, Provider.JsonSerializerOptions);
+                var updated = JsonSerializer.Serialize(msg, Options.JsonSerializerOptions);
                 await AtomicFile.WriteAllTextAsync(file, updated, ct).ConfigureAwait(false);
                 result.Add(msg);
             }
@@ -151,7 +152,7 @@ internal sealed class QueueStore
             try
             {
                 var json = await File.ReadAllTextAsync(file, ct).ConfigureAwait(false);
-                var msg = JsonSerializer.Deserialize<QueueMessageFile>(json, Provider.JsonSerializerOptions);
+                var msg = JsonSerializer.Deserialize<QueueMessageFile>(json, Options.JsonSerializerOptions);
                 if (msg == null) continue;
 
                 if (msg.ExpiresOn <= now) continue;
@@ -171,7 +172,7 @@ internal sealed class QueueStore
         if (!File.Exists(path)) return false;
 
         var json = File.ReadAllText(path);
-        var msg = JsonSerializer.Deserialize<QueueMessageFile>(json, Provider.JsonSerializerOptions);
+        var msg = JsonSerializer.Deserialize<QueueMessageFile>(json, Options.JsonSerializerOptions);
         if (msg == null || msg.PopReceipt != popReceipt) return false;
 
         File.Delete(path);
@@ -184,7 +185,7 @@ internal sealed class QueueStore
         if (!File.Exists(path)) return null;
 
         var json = await File.ReadAllTextAsync(path, ct).ConfigureAwait(false);
-        var msg = JsonSerializer.Deserialize<QueueMessageFile>(json, Provider.JsonSerializerOptions);
+        var msg = JsonSerializer.Deserialize<QueueMessageFile>(json, Options.JsonSerializerOptions);
         if (msg == null || msg.PopReceipt != popReceipt) return null;
 
         if (messageText != null)
@@ -192,7 +193,7 @@ internal sealed class QueueStore
         msg.PopReceipt = Guid.NewGuid().ToString();
         msg.NextVisibleOn = DateTimeOffset.UtcNow + visibilityTimeout;
 
-        var updated = JsonSerializer.Serialize(msg, Provider.JsonSerializerOptions);
+        var updated = JsonSerializer.Serialize(msg, Options.JsonSerializerOptions);
         await AtomicFile.WriteAllTextAsync(path, updated, ct).ConfigureAwait(false);
         return msg;
     }
