@@ -18,7 +18,7 @@ public class BlobVersionTests
     [Test]
     public void Upload_CreatesVersionFile_OnReupload()
     {
-        var cc = _root.BlobService.GetBlobContainerClient("ver-reupload") as FileBlobContainerClient;
+        var cc = (FileBlobContainerClient)_root.BlobService.GetBlobContainerClient("ver-reupload");
         cc.CreateIfNotExists();
         var bc = (FileBlobClient)cc.GetBlobClient("doc.txt");
 
@@ -41,7 +41,7 @@ public class BlobVersionTests
     [Test]
     public void VersionId_IsSet_OnSidecar()
     {
-        var cc = _root.BlobService.GetBlobContainerClient("ver-sidecar") as FileBlobContainerClient;
+        var cc = (FileBlobContainerClient)_root.BlobService.GetBlobContainerClient("ver-sidecar");
         cc.CreateIfNotExists();
         var bc = (FileBlobClient)cc.GetBlobClient("doc.txt");
 
@@ -57,7 +57,7 @@ public class BlobVersionTests
     [Test]
     public void Multiple_Uploads_Create_Multiple_Versions()
     {
-        var cc = _root.BlobService.GetBlobContainerClient("ver-multi") as FileBlobContainerClient;
+        var cc = (FileBlobContainerClient)_root.BlobService.GetBlobContainerClient("ver-multi");
         cc.CreateIfNotExists();
         var bc = (FileBlobClient)cc.GetBlobClient("doc.txt");
 

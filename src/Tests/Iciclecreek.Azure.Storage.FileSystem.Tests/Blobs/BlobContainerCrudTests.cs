@@ -14,7 +14,7 @@ public class BlobContainerCrudTests : BlobContainerCrudTestsBase
     [Test]
     public void Create_Creates_Directory_On_Disk()
     {
-        var client = FileFixture.BlobService.GetBlobContainerClient("my-container") as FileBlobContainerClient;
+        var client = (FileBlobContainerClient)FileFixture.BlobService.GetBlobContainerClient("my-container");
         client.Create();
         Assert.That(Directory.Exists(Path.Combine(FileFixture.BlobsPath, "my-container")), Is.True);
     }
@@ -22,7 +22,7 @@ public class BlobContainerCrudTests : BlobContainerCrudTestsBase
     [Test]
     public async Task Create_Creates_Directory_On_Disk_Async()
     {
-        var client = FileFixture.BlobService.GetBlobContainerClient("my-container") as FileBlobContainerClient;
+        var client = (FileBlobContainerClient)FileFixture.BlobService.GetBlobContainerClient("my-container");
         await client.CreateAsync();
         Assert.That(Directory.Exists(Path.Combine(FileFixture.BlobsPath, "my-container")), Is.True);
     }

@@ -19,9 +19,9 @@ public sealed class TempRoot : IDisposable
     }
 
     public string Path { get; }
-    public string BlobsPath => BlobService.BlobsRootPath;
-    public string TablesPath => TableService.TablesRootPath;
-    public string QueuesPath => QueueService.QueuesRootPath;
+    public string BlobsPath => System.IO.Path.Combine(Path, "blobs");
+    public string TablesPath => System.IO.Path.Combine(Path, "tables");
+    public string QueuesPath => System.IO.Path.Combine(Path, "queues");
     public FileBlobServiceClient BlobService { get; }
     public FileTableServiceClient TableService { get; }
     public FileQueueServiceClient QueueService { get; }

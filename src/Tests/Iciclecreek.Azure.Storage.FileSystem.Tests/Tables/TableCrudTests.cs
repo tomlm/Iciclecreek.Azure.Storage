@@ -18,7 +18,7 @@ public class TableCrudTests
     [Test]
     public void AddEntity_And_GetEntity_Roundtrip()
     {
-        var client = _root.TableService.GetTableClient("people") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("people");
         client.CreateIfNotExists();
 
         var entity = new TableEntity("users", "alice")
@@ -36,7 +36,7 @@ public class TableCrudTests
     [Test]
     public void AddEntity_Creates_File_On_Disk()
     {
-        var client = _root.TableService.GetTableClient("disk-table") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("disk-table");
         client.CreateIfNotExists();
 
         client.AddEntity(new TableEntity("pk", "rk") { ["X"] = "Y" });
@@ -48,7 +48,7 @@ public class TableCrudTests
     [Test]
     public void AddEntity_Duplicate_Throws_409()
     {
-        var client = _root.TableService.GetTableClient("dup-table") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("dup-table");
         client.CreateIfNotExists();
 
         client.AddEntity(new TableEntity("pk", "rk"));
@@ -60,7 +60,7 @@ public class TableCrudTests
     [Test]
     public void UpsertEntity_Replace_Overwrites()
     {
-        var client = _root.TableService.GetTableClient("upsert") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("upsert");
         client.CreateIfNotExists();
 
         client.AddEntity(new TableEntity("pk", "rk") { ["A"] = "1", ["B"] = "2" });
@@ -74,7 +74,7 @@ public class TableCrudTests
     [Test]
     public void UpsertEntity_Merge_Preserves_Existing_Properties()
     {
-        var client = _root.TableService.GetTableClient("merge") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("merge");
         client.CreateIfNotExists();
 
         client.AddEntity(new TableEntity("pk", "rk") { ["A"] = "1", ["B"] = "2" });
@@ -88,7 +88,7 @@ public class TableCrudTests
     [Test]
     public void DeleteEntity_Removes_Entity()
     {
-        var client = _root.TableService.GetTableClient("del-table") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("del-table");
         client.CreateIfNotExists();
 
         client.AddEntity(new TableEntity("pk", "rk"));
@@ -102,7 +102,7 @@ public class TableCrudTests
     [Test]
     public void UpdateEntity_With_Stale_ETag_Throws_412()
     {
-        var client = _root.TableService.GetTableClient("etag-table") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("etag-table");
         client.CreateIfNotExists();
 
         client.AddEntity(new TableEntity("pk", "rk") { ["V"] = "1" });
@@ -120,7 +120,7 @@ public class TableCrudTests
     [Test]
     public void UpdateEntity_With_ETag_All_Bypasses_Check()
     {
-        var client = _root.TableService.GetTableClient("etag-all") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("etag-all");
         client.CreateIfNotExists();
 
         client.AddEntity(new TableEntity("pk", "rk") { ["V"] = "1" });
@@ -133,7 +133,7 @@ public class TableCrudTests
     [Test]
     public void ETag_Changes_On_Every_Write()
     {
-        var client = _root.TableService.GetTableClient("etag-track") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("etag-track");
         client.CreateIfNotExists();
 
         client.AddEntity(new TableEntity("pk", "rk") { ["V"] = "1" });
@@ -152,7 +152,7 @@ public class TableCrudTests
     [Test]
     public void Optimistic_Concurrency_ReadModifyWrite()
     {
-        var client = _root.TableService.GetTableClient("etag-optimistic") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("etag-optimistic");
         client.CreateIfNotExists();
 
         client.AddEntity(new TableEntity("pk", "rk") { ["Counter"] = 0 });
@@ -185,7 +185,7 @@ public class TableCrudTests
     [Test]
     public void DeleteEntity_With_Stale_ETag_Throws_412()
     {
-        var client = _root.TableService.GetTableClient("etag-del") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("etag-del");
         client.CreateIfNotExists();
 
         client.AddEntity(new TableEntity("pk", "rk") { ["V"] = "1" });
@@ -201,7 +201,7 @@ public class TableCrudTests
     [Test]
     public void DeleteEntity_With_Correct_ETag_Succeeds()
     {
-        var client = _root.TableService.GetTableClient("etag-del-ok") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("etag-del-ok");
         client.CreateIfNotExists();
 
         client.AddEntity(new TableEntity("pk", "rk"));
@@ -219,7 +219,7 @@ public class TableCrudTests
     [Test]
     public async Task AddEntity_And_GetEntity_Roundtrip_Async()
     {
-        var client = _root.TableService.GetTableClient("people") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("people");
         await client.CreateIfNotExistsAsync();
 
         var entity = new TableEntity("users", "alice")
@@ -237,7 +237,7 @@ public class TableCrudTests
     [Test]
     public async Task AddEntity_Creates_File_On_Disk_Async()
     {
-        var client = _root.TableService.GetTableClient("disk-table") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("disk-table");
         await client.CreateIfNotExistsAsync();
 
         await client.AddEntityAsync(new TableEntity("pk", "rk") { ["X"] = "Y" });
@@ -249,7 +249,7 @@ public class TableCrudTests
     [Test]
     public async Task AddEntity_Duplicate_Throws_409_Async()
     {
-        var client = _root.TableService.GetTableClient("dup-table") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("dup-table");
         await client.CreateIfNotExistsAsync();
 
         await client.AddEntityAsync(new TableEntity("pk", "rk"));
@@ -261,7 +261,7 @@ public class TableCrudTests
     [Test]
     public async Task UpsertEntity_Replace_Overwrites_Async()
     {
-        var client = _root.TableService.GetTableClient("upsert") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("upsert");
         await client.CreateIfNotExistsAsync();
 
         await client.AddEntityAsync(new TableEntity("pk", "rk") { ["A"] = "1", ["B"] = "2" });
@@ -275,7 +275,7 @@ public class TableCrudTests
     [Test]
     public async Task UpsertEntity_Merge_Preserves_Existing_Properties_Async()
     {
-        var client = _root.TableService.GetTableClient("merge") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("merge");
         await client.CreateIfNotExistsAsync();
 
         await client.AddEntityAsync(new TableEntity("pk", "rk") { ["A"] = "1", ["B"] = "2" });
@@ -289,7 +289,7 @@ public class TableCrudTests
     [Test]
     public async Task DeleteEntity_Removes_Entity_Async()
     {
-        var client = _root.TableService.GetTableClient("del-table") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("del-table");
         await client.CreateIfNotExistsAsync();
 
         await client.AddEntityAsync(new TableEntity("pk", "rk"));
@@ -303,7 +303,7 @@ public class TableCrudTests
     [Test]
     public async Task UpdateEntity_With_Stale_ETag_Throws_412_Async()
     {
-        var client = _root.TableService.GetTableClient("etag-table") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("etag-table");
         await client.CreateIfNotExistsAsync();
 
         await client.AddEntityAsync(new TableEntity("pk", "rk") { ["V"] = "1" });
@@ -321,7 +321,7 @@ public class TableCrudTests
     [Test]
     public async Task UpdateEntity_With_ETag_All_Bypasses_Check_Async()
     {
-        var client = _root.TableService.GetTableClient("etag-all") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("etag-all");
         await client.CreateIfNotExistsAsync();
 
         await client.AddEntityAsync(new TableEntity("pk", "rk") { ["V"] = "1" });
@@ -334,7 +334,7 @@ public class TableCrudTests
     [Test]
     public async Task ETag_Changes_On_Every_Write_Async()
     {
-        var client = _root.TableService.GetTableClient("etag-track") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("etag-track");
         await client.CreateIfNotExistsAsync();
 
         await client.AddEntityAsync(new TableEntity("pk", "rk") { ["V"] = "1" });
@@ -353,7 +353,7 @@ public class TableCrudTests
     [Test]
     public async Task Optimistic_Concurrency_ReadModifyWrite_Async()
     {
-        var client = _root.TableService.GetTableClient("etag-optimistic") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("etag-optimistic");
         await client.CreateIfNotExistsAsync();
 
         await client.AddEntityAsync(new TableEntity("pk", "rk") { ["Counter"] = 0 });
@@ -386,7 +386,7 @@ public class TableCrudTests
     [Test]
     public async Task DeleteEntity_With_Stale_ETag_Throws_412_Async()
     {
-        var client = _root.TableService.GetTableClient("etag-del") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("etag-del");
         await client.CreateIfNotExistsAsync();
 
         await client.AddEntityAsync(new TableEntity("pk", "rk") { ["V"] = "1" });
@@ -402,7 +402,7 @@ public class TableCrudTests
     [Test]
     public async Task DeleteEntity_With_Correct_ETag_Succeeds_Async()
     {
-        var client = _root.TableService.GetTableClient("etag-del-ok") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("etag-del-ok");
         await client.CreateIfNotExistsAsync();
 
         await client.AddEntityAsync(new TableEntity("pk", "rk"));

@@ -21,7 +21,7 @@ public class TableAdvancedFeatureTests
     [Test]
     public async Task GetEntityIfExists_Returns_Null_For_Missing()
     {
-        var client = _root.TableService.GetTableClient("geif-test") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("geif-test");
         await client.CreateIfNotExistsAsync();
 
         var result = await client.GetEntityIfExistsAsync<TableEntity>("pk", "missing");
@@ -33,7 +33,7 @@ public class TableAdvancedFeatureTests
     [Test]
     public async Task GetEntityIfExists_Returns_Value_For_Existing()
     {
-        var client = _root.TableService.GetTableClient("geif-exists") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("geif-exists");
         await client.CreateIfNotExistsAsync();
         await client.AddEntityAsync(new TableEntity("pk", "rk") { ["V"] = "found" });
 
@@ -63,7 +63,7 @@ public class TableAdvancedFeatureTests
     [Test]
     public void Table_SetAccessPolicy_NoOp()
     {
-        var client = _root.TableService.GetTableClient("ns-table") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("ns-table");
         client.CreateIfNotExists();
         Assert.DoesNotThrow(() =>
             client.SetAccessPolicy(Enumerable.Empty<TableSignedIdentifier>()));

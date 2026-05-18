@@ -15,7 +15,7 @@ public class QueueMessageTests
     public void Setup()
     {
         _root = new TempRoot();
-        _client = _root.QueueService.GetQueueClient("msgq") as FileQueueClient;
+        _client = (FileQueueClient)_root.QueueService.GetQueueClient("msgq");
         _client.Create();
     }
 
@@ -60,7 +60,7 @@ public class QueueMessageTests
     [Test]
     public void SendMessage_Throws_404_When_Queue_Missing()
     {
-        var client = _root.QueueService.GetQueueClient("nope") as FileQueueClient;
+        var client = (FileQueueClient)_root.QueueService.GetQueueClient("nope");
         var ex = Assert.Throws<RequestFailedException>(() => client.SendMessage("fail"));
         Assert.That(ex!.Status, Is.EqualTo(404));
     }

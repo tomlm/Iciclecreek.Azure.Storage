@@ -15,7 +15,7 @@ public class BlobAdvancedFeatureTests : BlobAdvancedFeatureTestsBase
     [Test]
     public void GenerateSasUri_Returns_Blob_Uri()
     {
-        var container = FileFixture.BlobService.GetBlobContainerClient("sas-test") as FileBlobContainerClient;
+        var container = (FileBlobContainerClient)FileFixture.BlobService.GetBlobContainerClient("sas-test");
         container.CreateIfNotExists();
 
         var client = container.GetBlobClient("doc.txt");
@@ -31,7 +31,7 @@ public class BlobAdvancedFeatureTests : BlobAdvancedFeatureTestsBase
     [Test]
     public void Container_GenerateSasUri_Returns_Container_Uri()
     {
-        var container = FileFixture.BlobService.GetBlobContainerClient("sas-container") as FileBlobContainerClient;
+        var container = (FileBlobContainerClient)FileFixture.BlobService.GetBlobContainerClient("sas-container");
         container.CreateIfNotExists();
 
         var sasUri = container.GenerateSasUri(new global::Azure.Storage.Sas.BlobSasBuilder());
@@ -42,7 +42,7 @@ public class BlobAdvancedFeatureTests : BlobAdvancedFeatureTestsBase
     [Test]
     public void NotSupported_StartCopyFromUri_Throws()
     {
-        var container = FileFixture.BlobService.GetBlobContainerClient("ns-copy") as FileBlobContainerClient;
+        var container = (FileBlobContainerClient)FileFixture.BlobService.GetBlobContainerClient("ns-copy");
         container.CreateIfNotExists();
         var client = container.GetBlobClient("x.txt");
         Assert.That(() => client.StartCopyFromUri(new Uri("https://example.com/blob")),
@@ -52,7 +52,7 @@ public class BlobAdvancedFeatureTests : BlobAdvancedFeatureTestsBase
     [Test]
     public void BlockBlob_StageBlockFromUri_Copies_Local_Blob()
     {
-        var container = FileFixture.BlobService.GetBlobContainerClient("stagefrom") as FileBlobContainerClient;
+        var container = (FileBlobContainerClient)FileFixture.BlobService.GetBlobContainerClient("stagefrom");
         container.CreateIfNotExists();
 
         container.UploadBlob("source.bin", BinaryData.FromString("source data"));
@@ -70,7 +70,7 @@ public class BlobAdvancedFeatureTests : BlobAdvancedFeatureTestsBase
     [Test]
     public void AppendBlob_AppendBlockFromUri_Copies_Local_Blob()
     {
-        var container = FileFixture.BlobService.GetBlobContainerClient("appendfrom") as FileBlobContainerClient;
+        var container = (FileBlobContainerClient)FileFixture.BlobService.GetBlobContainerClient("appendfrom");
         container.CreateIfNotExists();
 
         container.UploadBlob("source.txt", BinaryData.FromString("appended content"));
@@ -87,7 +87,7 @@ public class BlobAdvancedFeatureTests : BlobAdvancedFeatureTestsBase
     [Test]
     public void AppendBlob_Seal_Sets_IsSealed()
     {
-        var container = FileFixture.BlobService.GetBlobContainerClient("seal-test") as FileBlobContainerClient;
+        var container = (FileBlobContainerClient)FileFixture.BlobService.GetBlobContainerClient("seal-test");
         container.CreateIfNotExists();
 
         var client = container.GetFileAppendBlobClient("x.log");

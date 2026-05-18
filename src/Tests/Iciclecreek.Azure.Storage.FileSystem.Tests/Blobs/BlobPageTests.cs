@@ -14,7 +14,7 @@ public class BlobPageTests : BlobPageTestsBase
     [Test]
     public void Create_CreatesPreAllocatedFile()
     {
-        var cc = FileFixture.BlobService.GetBlobContainerClient("page-create-fs") as FileBlobContainerClient;
+        var cc = (FileBlobContainerClient)FileFixture.BlobService.GetBlobContainerClient("page-create-fs");
         cc.CreateIfNotExists();
         var pb = ((FileBlobContainerClient)cc).GetFilePageBlobClient("blob.bin");
 
@@ -28,7 +28,7 @@ public class BlobPageTests : BlobPageTestsBase
     [Test]
     public void Resize_ChangesFileSize()
     {
-        var cc = FileFixture.BlobService.GetBlobContainerClient("page-resize-fs") as FileBlobContainerClient;
+        var cc = (FileBlobContainerClient)FileFixture.BlobService.GetBlobContainerClient("page-resize-fs");
         cc.CreateIfNotExists();
         var pb = ((FileBlobContainerClient)cc).GetFilePageBlobClient("blob.bin");
         pb.Create(1024, (global::Azure.Storage.Blobs.Models.PageBlobCreateOptions?)null);

@@ -16,7 +16,7 @@ public class TableQueryTests
 
     private FileTableClient SetupPeopleTable()
     {
-        var client = _root.TableService.GetTableClient("people") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("people");
         client.CreateIfNotExists();
         client.AddEntity(new TableEntity("users", "alice") { ["Name"] = "Alice", ["Age"] = 30 });
         client.AddEntity(new TableEntity("users", "bob") { ["Name"] = "Bob", ["Age"] = 25 });
@@ -82,7 +82,7 @@ public class TableQueryTests
 
     private async Task<FileTableClient> SetupPeopleTableAsync()
     {
-        var client = _root.TableService.GetTableClient("people") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("people");
         await client.CreateIfNotExistsAsync();
         await client.AddEntityAsync(new TableEntity("users", "alice") { ["Name"] = "Alice", ["Age"] = 30 });
         await client.AddEntityAsync(new TableEntity("users", "bob") { ["Name"] = "Bob", ["Age"] = 25 });

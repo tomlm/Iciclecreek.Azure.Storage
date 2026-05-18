@@ -15,7 +15,7 @@ public class BlobClientRoundtripTests : BlobClientRoundtripTestsBase
     [Test]
     public void Upload_Creates_Real_File_On_Disk()
     {
-        var container = FileFixture.BlobService.GetBlobContainerClient("disk-container") as FileBlobContainerClient;
+        var container = (FileBlobContainerClient)FileFixture.BlobService.GetBlobContainerClient("disk-container");
         container.CreateIfNotExists();
 
         BlobClient client = container.GetBlobClient("real-file.txt");
@@ -29,7 +29,7 @@ public class BlobClientRoundtripTests : BlobClientRoundtripTestsBase
     [Test]
     public async Task Upload_Creates_Real_File_On_Disk_Async()
     {
-        var container = FileFixture.BlobService.GetBlobContainerClient("disk-container") as FileBlobContainerClient;
+        var container = (FileBlobContainerClient)FileFixture.BlobService.GetBlobContainerClient("disk-container");
         await container.CreateIfNotExistsAsync();
 
         BlobClient client = container.GetBlobClient("real-file.txt");
@@ -43,7 +43,7 @@ public class BlobClientRoundtripTests : BlobClientRoundtripTestsBase
     [Test]
     public async Task Upload_Download_Async_Works()
     {
-        var container = FileFixture.BlobService.GetBlobContainerClient("async-test") as FileBlobContainerClient;
+        var container = (FileBlobContainerClient)FileFixture.BlobService.GetBlobContainerClient("async-test");
         await container.CreateIfNotExistsAsync();
 
         BlobClient client = container.GetBlobClient("async.txt");

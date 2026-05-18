@@ -18,7 +18,7 @@ public class TableTransactionTests
     [Test]
     public void SubmitTransaction_All_Succeed()
     {
-        var client = _root.TableService.GetTableClient("tx-ok") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("tx-ok");
         client.CreateIfNotExists();
 
         var actions = new[]
@@ -37,7 +37,7 @@ public class TableTransactionTests
     [Test]
     public void SubmitTransaction_Rollback_On_Failure()
     {
-        var client = _root.TableService.GetTableClient("tx-fail") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("tx-fail");
         client.CreateIfNotExists();
 
         // Pre-add one entity to cause a conflict.
@@ -64,7 +64,7 @@ public class TableTransactionTests
     [Test]
     public void SubmitTransaction_Different_PartitionKey_Throws()
     {
-        var client = _root.TableService.GetTableClient("tx-pk") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("tx-pk");
         client.CreateIfNotExists();
 
         var actions = new[]
@@ -81,7 +81,7 @@ public class TableTransactionTests
     [Test]
     public async Task SubmitTransaction_All_Succeed_Async()
     {
-        var client = _root.TableService.GetTableClient("tx-ok") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("tx-ok");
         await client.CreateIfNotExistsAsync();
 
         var actions = new[]
@@ -100,7 +100,7 @@ public class TableTransactionTests
     [Test]
     public async Task SubmitTransaction_Rollback_On_Failure_Async()
     {
-        var client = _root.TableService.GetTableClient("tx-fail") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("tx-fail");
         await client.CreateIfNotExistsAsync();
 
         // Pre-add one entity to cause a conflict.
@@ -127,7 +127,7 @@ public class TableTransactionTests
     [Test]
     public async Task SubmitTransaction_Different_PartitionKey_Throws_Async()
     {
-        var client = _root.TableService.GetTableClient("tx-pk") as FileTableClient;
+        var client = (FileTableClient)_root.TableService.GetTableClient("tx-pk");
         await client.CreateIfNotExistsAsync();
 
         var actions = new[]
