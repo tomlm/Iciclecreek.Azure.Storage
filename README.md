@@ -37,20 +37,21 @@ Choose the backend that fits your scenario: in-memory for fast unit tests, files
 ## Quick Start
 
 ```csharp
-// Memory provider -- fastest, no I/O, ideal for unit tests
-var provider = new MemoryStorageProvider();
-var account  = provider.AddAccount("devaccount");
+// Memory -- fastest, no I/O, ideal for unit tests
+var blobService = new MemoryBlobServiceClient();
+var tableService = new MemoryTableServiceClient();
 
-// FileSystem provider -- stores data as files on disk
-var provider = new FileStorageProvider(@"C:\temp\my-storage");
-var account  = provider.AddAccount("devaccount");
+// FileSystem -- stores data as files on disk
+var blobService = new FileBlobServiceClient(@"C:\temp\my-storage");
+var tableService = new FileTableServiceClient(@"C:\temp\my-storage");
 
-// SQLite provider -- stores data in a .db file per account
-var provider = new SqliteStorageProvider(@"C:\temp\my-storage");
-var account  = provider.AddAccount("devaccount");
+// SQLite -- stores everything in a single .db file
+var blobService = new SqliteBlobServiceClient(@"C:\temp\storage.db");
+var tableService = new SqliteTableServiceClient(@"C:\temp\storage.db");
 
-// Then use standard Azure SDK types with any provider
-BlobContainerClient container = MemoryBlobContainerClient.FromAccount(account, "my-container");
+// Then use standard Azure SDK types
+BlobContainerClient container = blobService.GetBlobContainerClient("my-container");
+await container.CreateIfNotExistsAsync();
 ```
 
 See each package's README for detailed usage.
