@@ -27,8 +27,11 @@ internal static class BlobPathEncoder
 
     public static string SidecarPath(string fullBlobPath) => fullBlobPath + ".meta.json";
 
-    public static bool IsSidecar(string fileName)
-        => fileName.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase);
+    public static bool IsInternalFile(string fileName)
+        => fileName.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase)
+        || fileName.EndsWith("._pending", StringComparison.OrdinalIgnoreCase)
+        || fileName.Contains(".version.", StringComparison.OrdinalIgnoreCase)
+        || fileName.Contains(".snapshot.", StringComparison.OrdinalIgnoreCase);
 
     public static string FromRelativePath(string relativePath)
     {

@@ -75,7 +75,7 @@ internal sealed class BlobStore
         var dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-        var tmp = path + ".tmp";
+        var tmp = path + "._pending";
         byte[] hash;
         long length;
         await using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
@@ -149,7 +149,7 @@ internal sealed class BlobStore
 
             if (dir != ContainerPath)
             {
-                if (dirName.StartsWith('.') || dirName.StartsWith('_')) continue;
+                if (dirName == ".blocks") continue;
             }
 
             foreach (var sub in Directory.EnumerateDirectories(dir).OrderBy(d => d, StringComparer.Ordinal))
@@ -158,9 +158,7 @@ internal sealed class BlobStore
             foreach (var file in Directory.EnumerateFiles(dir).OrderBy(f => f, StringComparer.Ordinal))
             {
                 var name = Path.GetFileName(file);
-                if (BlobPathEncoder.IsSidecar(name)) continue;
-                if (name.EndsWith(".tmp", StringComparison.Ordinal)) continue;
-                if (name.StartsWith('_')) continue;
+                if (BlobPathEncoder.IsInternalFile(name)) continue;
 
                 var relative = file.Length > prefixLen ? file[prefixLen..] : "";
                 if (string.IsNullOrEmpty(relative)) continue;

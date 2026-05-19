@@ -67,7 +67,7 @@ public class FileBlockBlobClient : BlockBlobClient
         var dir = Path.GetDirectoryName(blobPath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-        var tmpPath = blobPath + ".commit.tmp";
+        var tmpPath = blobPath + "._pending";
         var committedBlocks = new List<CommittedBlock>();
 
         byte[] hash;

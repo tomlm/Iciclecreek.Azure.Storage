@@ -59,10 +59,18 @@ public abstract class BlobListingTestsBase
         container.CreateIfNotExists();
 
         container.UploadBlob("data.txt", BinaryData.FromString("stuff"));
+        // Overwrite to trigger version file creation
+        container.GetBlobClient("data.txt").Upload(BinaryData.FromString("updated"), overwrite: true);
+        // Blobs with dot or underscore prefixes should NOT be filtered
+        container.UploadBlob(".hidden", BinaryData.FromString("dotfile"));
+        container.UploadBlob("_internal", BinaryData.FromString("underscored"));
 
         var names = container.GetBlobs(BlobTraits.None, BlobStates.None, null!, default).Select(b => b.Name).ToArray();
         Assert.That(names, Does.Not.Contain("data.txt.meta.json"));
-        Assert.That(names, Has.Length.EqualTo(1));
+        Assert.That(names.Any(n => n.Contains(".version.")), Is.False, "Version files should not appear in blob listings");
+        Assert.That(names, Does.Contain(".hidden"), "Dot-prefixed blobs should be listed");
+        Assert.That(names, Does.Contain("_internal"), "Underscore-prefixed blobs should be listed");
+        Assert.That(names, Has.Length.EqualTo(3));
     }
 
     [Test]
@@ -72,6 +80,11 @@ public abstract class BlobListingTestsBase
         await container.CreateIfNotExistsAsync();
 
         await container.UploadBlobAsync("data.txt", BinaryData.FromString("stuff"));
+        // Overwrite to trigger version file creation
+        await container.GetBlobClient("data.txt").UploadAsync(BinaryData.FromString("updated"), overwrite: true);
+        // Blobs with dot or underscore prefixes should NOT be filtered
+        await container.UploadBlobAsync(".hidden", BinaryData.FromString("dotfile"));
+        await container.UploadBlobAsync("_internal", BinaryData.FromString("underscored"));
 
         var blobs = new List<BlobItem>();
         await foreach (var blob in container.GetBlobsAsync(BlobTraits.None, BlobStates.None, null!, default))
@@ -79,7 +92,10 @@ public abstract class BlobListingTestsBase
 
         var names = blobs.Select(b => b.Name).ToArray();
         Assert.That(names, Does.Not.Contain("data.txt.meta.json"));
-        Assert.That(names, Has.Length.EqualTo(1));
+        Assert.That(names.Any(n => n.Contains(".version.")), Is.False, "Version files should not appear in blob listings");
+        Assert.That(names, Does.Contain(".hidden"), "Dot-prefixed blobs should be listed");
+        Assert.That(names, Does.Contain("_internal"), "Underscore-prefixed blobs should be listed");
+        Assert.That(names, Has.Length.EqualTo(3));
     }
 
     // ── GetBlobs_With_Prefix_Filters ───────────────────────────────────

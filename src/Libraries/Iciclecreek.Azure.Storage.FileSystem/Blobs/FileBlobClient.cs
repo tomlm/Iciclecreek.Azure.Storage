@@ -366,7 +366,7 @@ public class FileBlobClient : BlobClient
         var blobPath = _store.BlobPath(_blobName);
         var dir = Path.GetDirectoryName(blobPath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        var tmpPath = blobPath + ".openwrite.tmp";
+        var tmpPath = blobPath + "._pending";
         var inner = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
         return new CommitOnCloseStream(inner, tmpPath, _blobName, _store, options?.HttpHeaders, options?.Metadata);
     }
