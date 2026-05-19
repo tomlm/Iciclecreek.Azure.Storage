@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -12,12 +13,20 @@ namespace Iciclecreek.Azure.Storage.SQLite.Tables;
 
 /// <summary>
 /// SQLite-backed drop-in replacement for <see cref="Azure.Data.Tables.TableClient"/>.
-/// Entities are stored in the Entities table of the SQLite database.
+/// Each Azure table is a separate SQLite table with dynamic columns for queryable properties.
 /// </summary>
 public class SqliteTableClient : TableClient
 {
     internal readonly SqliteTableServiceClient _serviceClient;
     internal readonly string _tableName;
+
+    // Cache of known columns per table to avoid repeated PRAGMA lookups
+    private static readonly ConcurrentDictionary<string, HashSet<string>> s_columnCache = new();
+
+    private static readonly HashSet<string> s_fixedColumns = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "PartitionKey", "RowKey", "_etag", "_timestamp", "_properties"
+    };
 
     private static readonly JsonSerializerOptions s_jsonOptions = new()
     {
@@ -43,17 +52,26 @@ public class SqliteTableClient : TableClient
     public override Response<TableItem> Create(CancellationToken cancellationToken = default)
     {
         using var conn = _serviceClient.Db.Open();
+        using var tx = conn.BeginTransaction();
+
+        // Register in Tables metadata
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
         cmd.CommandText = "INSERT INTO Tables (Name) VALUES (@name)";
         cmd.Parameters.AddWithValue("@name", _tableName);
         try
         {
             cmd.ExecuteNonQuery();
         }
-        catch (SqliteException ex) when (ex.SqliteErrorCode == 19) // SQLITE_CONSTRAINT
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
         {
             throw new RequestFailedException(409, "Table already exists.", "TableAlreadyExists", null);
         }
+
+        // Create the per-table SQLite table
+        _serviceClient.Db.CreateEntityTable(conn, _tableName, tx);
+        tx.Commit();
+
         return Response.FromValue(new TableItem(_tableName), StubResponse.Created());
     }
 
@@ -61,10 +79,17 @@ public class SqliteTableClient : TableClient
     public override Response<TableItem> CreateIfNotExists(CancellationToken cancellationToken = default)
     {
         using var conn = _serviceClient.Db.Open();
+        using var tx = conn.BeginTransaction();
+
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
         cmd.CommandText = "INSERT OR IGNORE INTO Tables (Name) VALUES (@name)";
         cmd.Parameters.AddWithValue("@name", _tableName);
         cmd.ExecuteNonQuery();
+
+        _serviceClient.Db.CreateEntityTable(conn, _tableName, tx);
+        tx.Commit();
+
         return Response.FromValue(new TableItem(_tableName), StubResponse.Ok());
     }
 
@@ -74,12 +99,10 @@ public class SqliteTableClient : TableClient
         using var conn = _serviceClient.Db.Open();
         using var tx = conn.BeginTransaction();
 
-        using var delEntities = conn.CreateCommand();
-        delEntities.Transaction = tx;
-        delEntities.CommandText = "DELETE FROM Entities WHERE TableName = @name";
-        delEntities.Parameters.AddWithValue("@name", _tableName);
-        delEntities.ExecuteNonQuery();
+        // Drop the entity table
+        _serviceClient.Db.DropEntityTable(conn, _tableName, tx);
 
+        // Remove from Tables metadata
         using var delTable = conn.CreateCommand();
         delTable.Transaction = tx;
         delTable.CommandText = "DELETE FROM Tables WHERE Name = @name";
@@ -87,6 +110,9 @@ public class SqliteTableClient : TableClient
         var rows = delTable.ExecuteNonQuery();
 
         tx.Commit();
+
+        // Clear column cache
+        s_columnCache.TryRemove(ColumnCacheKey, out _);
 
         if (rows == 0)
             throw new RequestFailedException(404, "Table not found.", "ResourceNotFound", null);
@@ -111,17 +137,15 @@ public class SqliteTableClient : TableClient
     {
         var etag = NewETag();
         var timestamp = DateTimeOffset.UtcNow;
-        var props = SerializeProperties(entity);
 
         using var conn = _serviceClient.Db.Open();
+        var properties = ExtractProperties(entity);
+        EnsureColumns(conn, properties);
+
+        var (sql, parameters) = BuildInsertSql(entity.PartitionKey, entity.RowKey, etag, timestamp, properties);
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "INSERT INTO Entities (TableName, PartitionKey, RowKey, ETag, Timestamp, Properties) VALUES (@table, @pk, @rk, @etag, @ts, @props)";
-        cmd.Parameters.AddWithValue("@table", _tableName);
-        cmd.Parameters.AddWithValue("@pk", entity.PartitionKey);
-        cmd.Parameters.AddWithValue("@rk", entity.RowKey);
-        cmd.Parameters.AddWithValue("@etag", etag);
-        cmd.Parameters.AddWithValue("@ts", timestamp.ToString("O"));
-        cmd.Parameters.AddWithValue("@props", props);
+        cmd.CommandText = sql;
+        foreach (var p in parameters) cmd.Parameters.Add(p);
 
         try
         {
@@ -177,39 +201,25 @@ public class SqliteTableClient : TableClient
 
         if (mode == TableUpdateMode.Replace)
         {
-            var props = SerializeProperties(entity);
+            var properties = ExtractProperties(entity);
+            EnsureColumns(conn, properties);
+            var (sql, parameters) = BuildUpsertSql(entity.PartitionKey, entity.RowKey, etag, timestamp, properties);
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "INSERT OR REPLACE INTO Entities (TableName, PartitionKey, RowKey, ETag, Timestamp, Properties) VALUES (@table, @pk, @rk, @etag, @ts, @props)";
-            cmd.Parameters.AddWithValue("@table", _tableName);
-            cmd.Parameters.AddWithValue("@pk", entity.PartitionKey);
-            cmd.Parameters.AddWithValue("@rk", entity.RowKey);
-            cmd.Parameters.AddWithValue("@etag", etag);
-            cmd.Parameters.AddWithValue("@ts", timestamp.ToString("O"));
-            cmd.Parameters.AddWithValue("@props", props);
+            cmd.CommandText = sql;
+            foreach (var p in parameters) cmd.Parameters.Add(p);
             cmd.ExecuteNonQuery();
         }
         else
         {
             // Merge mode: read existing, merge, then write
             var existing = ReadEntity(conn, entity.PartitionKey, entity.RowKey);
-            TableEntity merged;
-            if (existing != null)
-            {
-                merged = MergeEntities(existing, entity);
-            }
-            else
-            {
-                merged = ToTableEntity(entity);
-            }
-            var props = SerializePropertiesFromTableEntity(merged);
+            TableEntity merged = existing != null ? MergeEntities(existing, entity) : ToTableEntity(entity);
+            var properties = ExtractPropertiesFromTableEntity(merged);
+            EnsureColumns(conn, properties);
+            var (sql, parameters) = BuildUpsertSql(entity.PartitionKey, entity.RowKey, etag, timestamp, properties);
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "INSERT OR REPLACE INTO Entities (TableName, PartitionKey, RowKey, ETag, Timestamp, Properties) VALUES (@table, @pk, @rk, @etag, @ts, @props)";
-            cmd.Parameters.AddWithValue("@table", _tableName);
-            cmd.Parameters.AddWithValue("@pk", entity.PartitionKey);
-            cmd.Parameters.AddWithValue("@rk", entity.RowKey);
-            cmd.Parameters.AddWithValue("@etag", etag);
-            cmd.Parameters.AddWithValue("@ts", timestamp.ToString("O"));
-            cmd.Parameters.AddWithValue("@props", props);
+            cmd.CommandText = sql;
+            foreach (var p in parameters) cmd.Parameters.Add(p);
             cmd.ExecuteNonQuery();
         }
 
@@ -231,30 +241,18 @@ public class SqliteTableClient : TableClient
         if (existing == null)
             throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
 
-        // ETag check
         var existingETag = existing.TryGetValue("odata.etag", out var eObj) && eObj is string es ? es : "";
         if (ifMatch != ETag.All && ifMatch.ToString() != existingETag)
             throw new RequestFailedException(412, "ETag mismatch.", "UpdateConditionNotSatisfied", null);
 
-        TableEntity updated;
-        if (mode == TableUpdateMode.Replace)
-        {
-            updated = ToTableEntity(entity);
-        }
-        else
-        {
-            updated = MergeEntities(existing, entity);
-        }
+        TableEntity updated = mode == TableUpdateMode.Replace ? ToTableEntity(entity) : MergeEntities(existing, entity);
+        var properties = ExtractPropertiesFromTableEntity(updated);
+        EnsureColumns(conn, properties);
 
-        var props = SerializePropertiesFromTableEntity(updated);
+        var (sql, parameters) = BuildUpdateSql(entity.PartitionKey, entity.RowKey, etag, timestamp, properties);
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE Entities SET ETag = @etag, Timestamp = @ts, Properties = @props WHERE TableName = @table AND PartitionKey = @pk AND RowKey = @rk";
-        cmd.Parameters.AddWithValue("@table", _tableName);
-        cmd.Parameters.AddWithValue("@pk", entity.PartitionKey);
-        cmd.Parameters.AddWithValue("@rk", entity.RowKey);
-        cmd.Parameters.AddWithValue("@etag", etag);
-        cmd.Parameters.AddWithValue("@ts", timestamp.ToString("O"));
-        cmd.Parameters.AddWithValue("@props", props);
+        cmd.CommandText = sql;
+        foreach (var p in parameters) cmd.Parameters.Add(p);
         cmd.ExecuteNonQuery();
 
         return StubResponse.NoContent(etag);
@@ -276,15 +274,13 @@ public class SqliteTableClient : TableClient
             var existing = ReadEntity(conn, partitionKey, rowKey);
             if (existing == null)
                 throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
-
             var existingETag = existing.TryGetValue("odata.etag", out var eObj) && eObj is string es ? es : "";
             if (etag.ToString() != existingETag)
                 throw new RequestFailedException(412, "ETag mismatch.", "UpdateConditionNotSatisfied", null);
         }
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM Entities WHERE TableName = @table AND PartitionKey = @pk AND RowKey = @rk";
-        cmd.Parameters.AddWithValue("@table", _tableName);
+        cmd.CommandText = $"DELETE FROM [{_tableName}] WHERE PartitionKey = @pk AND RowKey = @rk";
         cmd.Parameters.AddWithValue("@pk", partitionKey);
         cmd.Parameters.AddWithValue("@rk", rowKey);
         var rows = cmd.ExecuteNonQuery();
@@ -311,38 +307,61 @@ public class SqliteTableClient : TableClient
 
     /// <inheritdoc/>
     public override AsyncPageable<T> QueryAsync<T>(string? filter = null, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
-    {
-        var entities = LoadAllEntities();
-        var predicate = ODataFilterParser.Parse(filter ?? "");
-        var results = entities.Where(e => predicate(e)).Select(ConvertEntity<T>).ToList();
-        return new StaticAsyncPageable<T>(new StaticPageable<T>(results));
-    }
+        => new StaticAsyncPageable<T>(new StaticPageable<T>(QueryCore<T>(filter)));
 
     /// <inheritdoc/>
     public override Pageable<T> Query<T>(string? filter = null, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
-    {
-        var entities = LoadAllEntities();
-        var predicate = ODataFilterParser.Parse(filter ?? "");
-        var results = entities.Where(e => predicate(e)).Select(ConvertEntity<T>).ToList();
-        return new StaticPageable<T>(results);
-    }
+        => new StaticPageable<T>(QueryCore<T>(filter));
 
     /// <inheritdoc/>
     public override AsyncPageable<T> QueryAsync<T>(Expression<Func<T, bool>> filter, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
     {
-        var compiled = filter.Compile();
-        var entities = LoadAllEntities();
-        var results = entities.Select(ConvertEntity<T>).Where(e => compiled(e)).ToList();
-        return new StaticAsyncPageable<T>(new StaticPageable<T>(results));
+        var odata = TableClient.CreateQueryFilter(filter);
+        return new StaticAsyncPageable<T>(new StaticPageable<T>(QueryCore<T>(odata)));
     }
 
     /// <inheritdoc/>
     public override Pageable<T> Query<T>(Expression<Func<T, bool>> filter, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
     {
-        var compiled = filter.Compile();
-        var entities = LoadAllEntities();
-        var results = entities.Select(ConvertEntity<T>).Where(e => compiled(e)).ToList();
-        return new StaticPageable<T>(results);
+        var odata = TableClient.CreateQueryFilter(filter);
+        return new StaticPageable<T>(QueryCore<T>(odata));
+    }
+
+    private List<T> QueryCore<T>(string? filter) where T : class, ITableEntity
+    {
+        using var conn = _serviceClient.Db.Open();
+
+        // Check if the filter references columns that don't exist
+        if (!string.IsNullOrWhiteSpace(filter))
+        {
+            var referencedColumns = ODataToSqlTranslator.ExtractColumnNames(filter);
+            var knownColumns = GetKnownColumns(conn);
+            foreach (var col in referencedColumns)
+            {
+                if (!knownColumns.Contains(col))
+                    return new List<T>(); // Column doesn't exist → no matches
+            }
+        }
+
+        var (sqlFilter, sqlParams) = ODataToSqlTranslator.Translate(filter ?? "");
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"SELECT PartitionKey, RowKey, _etag, _timestamp, _properties FROM [{_tableName}] WHERE {sqlFilter}";
+        foreach (var p in sqlParams) cmd.Parameters.Add(p);
+
+        var results = new List<T>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            var pk = reader.GetString(0);
+            var rk = reader.GetString(1);
+            var etag = reader.GetString(2);
+            var timestamp = DateTimeOffset.Parse(reader.GetString(3));
+            var propsJson = reader.GetString(4);
+            var entity = DeserializeToTableEntity(pk, rk, etag, timestamp, propsJson);
+            results.Add(ConvertEntity<T>(entity));
+        }
+        return results;
     }
 
     // ---- SubmitTransaction ----
@@ -421,17 +440,14 @@ public class SqliteTableClient : TableClient
     {
         var etag = NewETag();
         var timestamp = DateTimeOffset.UtcNow;
-        var props = SerializeProperties(entity);
+        var properties = ExtractProperties(entity);
+        EnsureColumns(conn, properties, tx);
 
+        var (sql, parameters) = BuildInsertSql(entity.PartitionKey, entity.RowKey, etag, timestamp, properties);
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
-        cmd.CommandText = "INSERT INTO Entities (TableName, PartitionKey, RowKey, ETag, Timestamp, Properties) VALUES (@table, @pk, @rk, @etag, @ts, @props)";
-        cmd.Parameters.AddWithValue("@table", _tableName);
-        cmd.Parameters.AddWithValue("@pk", entity.PartitionKey);
-        cmd.Parameters.AddWithValue("@rk", entity.RowKey);
-        cmd.Parameters.AddWithValue("@etag", etag);
-        cmd.Parameters.AddWithValue("@ts", timestamp.ToString("O"));
-        cmd.Parameters.AddWithValue("@props", props);
+        cmd.CommandText = sql;
+        foreach (var p in parameters) cmd.Parameters.Add(p);
 
         try
         {
@@ -456,19 +472,15 @@ public class SqliteTableClient : TableClient
 
         var etag = NewETag();
         var timestamp = DateTimeOffset.UtcNow;
-
         TableEntity updated = mode == TableUpdateMode.Replace ? ToTableEntity(entity) : MergeEntities(existing, entity);
-        var props = SerializePropertiesFromTableEntity(updated);
+        var properties = ExtractPropertiesFromTableEntity(updated);
+        EnsureColumns(conn, properties, tx);
 
+        var (sql, parameters) = BuildUpdateSql(entity.PartitionKey, entity.RowKey, etag, timestamp, properties);
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
-        cmd.CommandText = "UPDATE Entities SET ETag = @etag, Timestamp = @ts, Properties = @props WHERE TableName = @table AND PartitionKey = @pk AND RowKey = @rk";
-        cmd.Parameters.AddWithValue("@table", _tableName);
-        cmd.Parameters.AddWithValue("@pk", entity.PartitionKey);
-        cmd.Parameters.AddWithValue("@rk", entity.RowKey);
-        cmd.Parameters.AddWithValue("@etag", etag);
-        cmd.Parameters.AddWithValue("@ts", timestamp.ToString("O"));
-        cmd.Parameters.AddWithValue("@props", props);
+        cmd.CommandText = sql;
+        foreach (var p in parameters) cmd.Parameters.Add(p);
         cmd.ExecuteNonQuery();
         return etag;
     }
@@ -478,37 +490,25 @@ public class SqliteTableClient : TableClient
         var etag = NewETag();
         var timestamp = DateTimeOffset.UtcNow;
 
+        Dictionary<string, (TypedValue Typed, object? SqlValue)> properties;
         if (mode == TableUpdateMode.Replace)
         {
-            var props = SerializeProperties(entity);
-            using var cmd = conn.CreateCommand();
-            cmd.Transaction = tx;
-            cmd.CommandText = "INSERT OR REPLACE INTO Entities (TableName, PartitionKey, RowKey, ETag, Timestamp, Properties) VALUES (@table, @pk, @rk, @etag, @ts, @props)";
-            cmd.Parameters.AddWithValue("@table", _tableName);
-            cmd.Parameters.AddWithValue("@pk", entity.PartitionKey);
-            cmd.Parameters.AddWithValue("@rk", entity.RowKey);
-            cmd.Parameters.AddWithValue("@etag", etag);
-            cmd.Parameters.AddWithValue("@ts", timestamp.ToString("O"));
-            cmd.Parameters.AddWithValue("@props", props);
-            cmd.ExecuteNonQuery();
+            properties = ExtractProperties(entity);
         }
         else
         {
             var existing = ReadEntity(conn, entity.PartitionKey, entity.RowKey, tx);
             TableEntity merged = existing != null ? MergeEntities(existing, entity) : ToTableEntity(entity);
-            var props = SerializePropertiesFromTableEntity(merged);
-
-            using var cmd = conn.CreateCommand();
-            cmd.Transaction = tx;
-            cmd.CommandText = "INSERT OR REPLACE INTO Entities (TableName, PartitionKey, RowKey, ETag, Timestamp, Properties) VALUES (@table, @pk, @rk, @etag, @ts, @props)";
-            cmd.Parameters.AddWithValue("@table", _tableName);
-            cmd.Parameters.AddWithValue("@pk", entity.PartitionKey);
-            cmd.Parameters.AddWithValue("@rk", entity.RowKey);
-            cmd.Parameters.AddWithValue("@etag", etag);
-            cmd.Parameters.AddWithValue("@ts", timestamp.ToString("O"));
-            cmd.Parameters.AddWithValue("@props", props);
-            cmd.ExecuteNonQuery();
+            properties = ExtractPropertiesFromTableEntity(merged);
         }
+
+        EnsureColumns(conn, properties, tx);
+        var (sql, parameters) = BuildUpsertSql(entity.PartitionKey, entity.RowKey, etag, timestamp, properties);
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = sql;
+        foreach (var p in parameters) cmd.Parameters.Add(p);
+        cmd.ExecuteNonQuery();
         return etag;
     }
 
@@ -526,8 +526,7 @@ public class SqliteTableClient : TableClient
 
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
-        cmd.CommandText = "DELETE FROM Entities WHERE TableName = @table AND PartitionKey = @pk AND RowKey = @rk";
-        cmd.Parameters.AddWithValue("@table", _tableName);
+        cmd.CommandText = $"DELETE FROM [{_tableName}] WHERE PartitionKey = @pk AND RowKey = @rk";
         cmd.Parameters.AddWithValue("@pk", partitionKey);
         cmd.Parameters.AddWithValue("@rk", rowKey);
         var rows = cmd.ExecuteNonQuery();
@@ -536,14 +535,216 @@ public class SqliteTableClient : TableClient
             throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
     }
 
-    // ---- Internal Helpers ----
+    // ---- SQL Builders ----
+
+    private (string Sql, List<SqliteParameter> Parameters) BuildInsertSql(
+        string pk, string rk, string etag, DateTimeOffset timestamp,
+        Dictionary<string, (TypedValue Typed, object? SqlValue)> properties)
+    {
+        var columns = new List<string> { "PartitionKey", "RowKey", "_etag", "_timestamp", "_properties" };
+        var paramNames = new List<string> { "@pk", "@rk", "@etag", "@ts", "@props" };
+        var parameters = new List<SqliteParameter>
+        {
+            new("@pk", pk),
+            new("@rk", rk),
+            new("@etag", etag),
+            new("@ts", timestamp.ToString("O")),
+            new("@props", SerializeTypedValues(properties)),
+        };
+
+        int i = 0;
+        foreach (var kvp in properties)
+        {
+            columns.Add($"[{kvp.Key}]");
+            var pName = $"@v{i++}";
+            paramNames.Add(pName);
+            parameters.Add(new SqliteParameter(pName, kvp.Value.SqlValue ?? DBNull.Value));
+        }
+
+        var sql = $"INSERT INTO [{_tableName}] ({string.Join(", ", columns)}) VALUES ({string.Join(", ", paramNames)})";
+        return (sql, parameters);
+    }
+
+    private (string Sql, List<SqliteParameter> Parameters) BuildUpsertSql(
+        string pk, string rk, string etag, DateTimeOffset timestamp,
+        Dictionary<string, (TypedValue Typed, object? SqlValue)> properties)
+    {
+        var columns = new List<string> { "PartitionKey", "RowKey", "_etag", "_timestamp", "_properties" };
+        var paramNames = new List<string> { "@pk", "@rk", "@etag", "@ts", "@props" };
+        var parameters = new List<SqliteParameter>
+        {
+            new("@pk", pk),
+            new("@rk", rk),
+            new("@etag", etag),
+            new("@ts", timestamp.ToString("O")),
+            new("@props", SerializeTypedValues(properties)),
+        };
+
+        int i = 0;
+        foreach (var kvp in properties)
+        {
+            columns.Add($"[{kvp.Key}]");
+            var pName = $"@v{i++}";
+            paramNames.Add(pName);
+            parameters.Add(new SqliteParameter(pName, kvp.Value.SqlValue ?? DBNull.Value));
+        }
+
+        var sql = $"INSERT OR REPLACE INTO [{_tableName}] ({string.Join(", ", columns)}) VALUES ({string.Join(", ", paramNames)})";
+        return (sql, parameters);
+    }
+
+    private (string Sql, List<SqliteParameter> Parameters) BuildUpdateSql(
+        string pk, string rk, string etag, DateTimeOffset timestamp,
+        Dictionary<string, (TypedValue Typed, object? SqlValue)> properties)
+    {
+        var setClauses = new List<string> { "_etag = @etag", "_timestamp = @ts", "_properties = @props" };
+        var parameters = new List<SqliteParameter>
+        {
+            new("@etag", etag),
+            new("@ts", timestamp.ToString("O")),
+            new("@props", SerializeTypedValues(properties)),
+            new("@pk", pk),
+            new("@rk", rk),
+        };
+
+        int i = 0;
+        foreach (var kvp in properties)
+        {
+            var pName = $"@v{i++}";
+            setClauses.Add($"[{kvp.Key}] = {pName}");
+            parameters.Add(new SqliteParameter(pName, kvp.Value.SqlValue ?? DBNull.Value));
+        }
+
+        var sql = $"UPDATE [{_tableName}] SET {string.Join(", ", setClauses)} WHERE PartitionKey = @pk AND RowKey = @rk";
+        return (sql, parameters);
+    }
+
+    // ---- Column Management ----
+
+    private string ColumnCacheKey => $"{_serviceClient.Db.DbPath}:{_tableName}";
+
+    private HashSet<string> GetKnownColumns(SqliteConnection conn)
+    {
+        var key = ColumnCacheKey;
+        if (s_columnCache.TryGetValue(key, out var cached))
+            return cached;
+
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info([{_tableName}])";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            columns.Add(reader.GetString(1));
+
+        s_columnCache[key] = columns;
+        return columns;
+    }
+
+    private void EnsureColumns(SqliteConnection conn, Dictionary<string, (TypedValue Typed, object? SqlValue)> properties, SqliteTransaction? tx = null)
+    {
+        var known = GetKnownColumns(conn);
+
+        foreach (var kvp in properties)
+        {
+            if (known.Contains(kvp.Key)) continue;
+            if (s_fixedColumns.Contains(kvp.Key)) continue;
+
+            var sqlType = GetSqliteType(kvp.Value.Typed.Type);
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = $"ALTER TABLE [{_tableName}] ADD COLUMN [{kvp.Key}] {sqlType}";
+            try
+            {
+                cmd.ExecuteNonQuery();
+                known.Add(kvp.Key);
+            }
+            catch (SqliteException)
+            {
+                // Column may already exist (race condition with concurrent writers)
+                known.Add(kvp.Key);
+            }
+        }
+    }
+
+    private static string GetSqliteType(string typedValueType) => typedValueType switch
+    {
+        "Int32" or "Int64" or "Boolean" => "INTEGER",
+        "Double" => "REAL",
+        "Binary" => "BLOB",
+        _ => "TEXT"
+    };
+
+    // ---- Property Extraction ----
+
+    private Dictionary<string, (TypedValue Typed, object? SqlValue)> ExtractProperties(ITableEntity entity)
+    {
+        var result = new Dictionary<string, (TypedValue, object?)>();
+
+        if (entity is TableEntity te)
+        {
+            foreach (var kvp in te)
+            {
+                if (kvp.Key is "PartitionKey" or "RowKey" or "odata.etag" or "Timestamp") continue;
+                var typed = TypedValue.FromObject(kvp.Value);
+                result[kvp.Key] = (typed, ToSqlValue(typed));
+            }
+        }
+        else
+        {
+            var type = entity.GetType();
+            foreach (var prop in type.GetProperties())
+            {
+                if (prop.Name is "PartitionKey" or "RowKey" or "ETag" or "Timestamp") continue;
+                if (!prop.CanRead) continue;
+                var val = prop.GetValue(entity);
+                if (val != null)
+                {
+                    var typed = TypedValue.FromObject(val);
+                    result[prop.Name] = (typed, ToSqlValue(typed));
+                }
+            }
+        }
+        return result;
+    }
+
+    private Dictionary<string, (TypedValue Typed, object? SqlValue)> ExtractPropertiesFromTableEntity(TableEntity entity)
+    {
+        var result = new Dictionary<string, (TypedValue, object?)>();
+        foreach (var kvp in entity)
+        {
+            if (kvp.Key is "PartitionKey" or "RowKey" or "odata.etag" or "Timestamp") continue;
+            var typed = TypedValue.FromObject(kvp.Value);
+            result[kvp.Key] = (typed, ToSqlValue(typed));
+        }
+        return result;
+    }
+
+    private static object? ToSqlValue(TypedValue tv) => tv.Type switch
+    {
+        "Null" => null,
+        "Int32" => int.TryParse(tv.Value, out var i) ? (long)i : null,
+        "Int64" => long.TryParse(tv.Value, out var l) ? l : null,
+        "Double" => double.TryParse(tv.Value, out var d) ? d : null,
+        "Boolean" => bool.TryParse(tv.Value, out var b) ? (b ? 1L : 0L) : null,
+        "Binary" => Convert.FromBase64String(tv.Value),
+        _ => tv.Value // String, DateTime, Guid stored as TEXT
+    };
+
+    private static string SerializeTypedValues(Dictionary<string, (TypedValue Typed, object? SqlValue)> properties)
+    {
+        var dict = new Dictionary<string, TypedValue>();
+        foreach (var kvp in properties)
+            dict[kvp.Key] = kvp.Value.Typed;
+        return JsonSerializer.Serialize(dict, s_jsonOptions);
+    }
+
+    // ---- Read Helpers ----
 
     private TableEntity? ReadEntity(SqliteConnection conn, string partitionKey, string rowKey, SqliteTransaction? tx = null)
     {
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
-        cmd.CommandText = "SELECT ETag, Timestamp, Properties FROM Entities WHERE TableName = @table AND PartitionKey = @pk AND RowKey = @rk";
-        cmd.Parameters.AddWithValue("@table", _tableName);
+        cmd.CommandText = $"SELECT _etag, _timestamp, _properties FROM [{_tableName}] WHERE PartitionKey = @pk AND RowKey = @rk";
         cmd.Parameters.AddWithValue("@pk", partitionKey);
         cmd.Parameters.AddWithValue("@rk", rowKey);
 
@@ -555,73 +756,10 @@ public class SqliteTableClient : TableClient
         var timestamp = DateTimeOffset.Parse(reader.GetString(1));
         var propsJson = reader.GetString(2);
 
-        var entity = DeserializeToTableEntity(partitionKey, rowKey, etag, timestamp, propsJson);
-        return entity;
-    }
-
-    private List<TableEntity> LoadAllEntities()
-    {
-        var entities = new List<TableEntity>();
-        using var conn = _serviceClient.Db.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT PartitionKey, RowKey, ETag, Timestamp, Properties FROM Entities WHERE TableName = @table";
-        cmd.Parameters.AddWithValue("@table", _tableName);
-
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read())
-        {
-            var pk = reader.GetString(0);
-            var rk = reader.GetString(1);
-            var etag = reader.GetString(2);
-            var timestamp = DateTimeOffset.Parse(reader.GetString(3));
-            var propsJson = reader.GetString(4);
-            entities.Add(DeserializeToTableEntity(pk, rk, etag, timestamp, propsJson));
-        }
-        return entities;
+        return DeserializeToTableEntity(partitionKey, rowKey, etag, timestamp, propsJson);
     }
 
     private static string NewETag() => $"0x{Guid.NewGuid():N}";
-
-    private static string SerializeProperties(ITableEntity entity)
-    {
-        var dict = new Dictionary<string, TypedValue>();
-        if (entity is TableEntity te)
-        {
-            foreach (var kvp in te)
-            {
-                if (kvp.Key is "PartitionKey" or "RowKey" or "odata.etag" or "Timestamp")
-                    continue;
-                dict[kvp.Key] = TypedValue.FromObject(kvp.Value);
-            }
-        }
-        else
-        {
-            // Reflect custom ITableEntity properties
-            var type = entity.GetType();
-            foreach (var prop in type.GetProperties())
-            {
-                if (prop.Name is "PartitionKey" or "RowKey" or "ETag" or "Timestamp")
-                    continue;
-                if (!prop.CanRead) continue;
-                var val = prop.GetValue(entity);
-                if (val != null)
-                    dict[prop.Name] = TypedValue.FromObject(val);
-            }
-        }
-        return JsonSerializer.Serialize(dict, s_jsonOptions);
-    }
-
-    private static string SerializePropertiesFromTableEntity(TableEntity entity)
-    {
-        var dict = new Dictionary<string, TypedValue>();
-        foreach (var kvp in entity)
-        {
-            if (kvp.Key is "PartitionKey" or "RowKey" or "odata.etag" or "Timestamp")
-                continue;
-            dict[kvp.Key] = TypedValue.FromObject(kvp.Value);
-        }
-        return JsonSerializer.Serialize(dict, s_jsonOptions);
-    }
 
     private static TableEntity DeserializeToTableEntity(string partitionKey, string rowKey, string etag, DateTimeOffset timestamp, string propsJson)
     {
@@ -637,9 +775,7 @@ public class SqliteTableClient : TableClient
             if (dict != null)
             {
                 foreach (var kvp in dict)
-                {
                     entity[kvp.Key] = kvp.Value.ToObject();
-                }
             }
         }
 
@@ -759,7 +895,7 @@ public class SqliteTableClient : TableClient
     /// <inheritdoc/>
     public override TableSasBuilder GetSasBuilder(string rawPermissions, DateTimeOffset expiresOn) => new TableSasBuilder(_tableName, rawPermissions, expiresOn);
 
-    // ---- TypedValue (inline serialization helper matching FileSystem format) ----
+    // ---- TypedValue ----
 
     private sealed class TypedValue
     {
@@ -802,5 +938,4 @@ public class SqliteTableClient : TableClient
             _ => Value,
         };
     }
-
 }

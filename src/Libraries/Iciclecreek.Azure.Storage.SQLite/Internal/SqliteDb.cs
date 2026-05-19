@@ -10,8 +10,11 @@ internal sealed class SqliteDb
 {
     private readonly string _connectionString;
 
+    public string DbPath { get; }
+
     public SqliteDb(string dbPath)
     {
+        DbPath = dbPath;
         var dir = Path.GetDirectoryName(dbPath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
@@ -33,6 +36,37 @@ internal sealed class SqliteDb
         cmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
         cmd.ExecuteNonQuery();
         return conn;
+    }
+
+    /// <summary>
+    /// Creates a per-table SQLite table for storing entities.
+    /// </summary>
+    public void CreateEntityTable(SqliteConnection conn, string tableName, SqliteTransaction? tx = null)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = $"""
+            CREATE TABLE IF NOT EXISTS [{tableName}] (
+                PartitionKey TEXT NOT NULL,
+                RowKey TEXT NOT NULL,
+                _etag TEXT NOT NULL,
+                _timestamp TEXT NOT NULL,
+                _properties TEXT NOT NULL,
+                PRIMARY KEY (PartitionKey, RowKey)
+            )
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Drops a per-table SQLite table.
+    /// </summary>
+    public void DropEntityTable(SqliteConnection conn, string tableName, SqliteTransaction? tx = null)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = $"DROP TABLE IF EXISTS [{tableName}]";
+        cmd.ExecuteNonQuery();
     }
 
     private void InitializeSchema()
@@ -125,16 +159,6 @@ internal sealed class SqliteDb
 
         CREATE TABLE IF NOT EXISTS Tables (
             Name TEXT PRIMARY KEY
-        );
-
-        CREATE TABLE IF NOT EXISTS Entities (
-            TableName TEXT NOT NULL,
-            PartitionKey TEXT NOT NULL,
-            RowKey TEXT NOT NULL,
-            ETag TEXT NOT NULL,
-            Timestamp TEXT NOT NULL,
-            Properties TEXT NOT NULL,
-            PRIMARY KEY (TableName, PartitionKey, RowKey)
         );
 
         CREATE TABLE IF NOT EXISTS Queues (
