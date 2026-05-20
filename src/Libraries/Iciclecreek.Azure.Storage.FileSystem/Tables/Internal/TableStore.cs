@@ -153,7 +153,6 @@ internal sealed class TableStore
         foreach (var pkDir in Directory.EnumerateDirectories(TablePath).OrderBy(d => d, StringComparer.Ordinal))
         {
             var dirName = Path.GetFileName(pkDir);
-            if (dirName.StartsWith('.') || dirName.StartsWith('_')) continue;
 
             foreach (var file in Directory.EnumerateFiles(pkDir, "*.json").OrderBy(f => f, StringComparer.Ordinal))
             {

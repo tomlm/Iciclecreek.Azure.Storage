@@ -135,14 +135,13 @@ public class SqliteTableClient : TableClient
     /// <inheritdoc/>
     public override async Task<Response> AddEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
     {
-        var etag = NewETag();
         var timestamp = DateTimeOffset.UtcNow;
 
         using var conn = _serviceClient.Db.Open();
         var properties = ExtractProperties(entity);
         EnsureColumns(conn, properties);
 
-        var (sql, parameters) = BuildInsertSql(entity.PartitionKey, entity.RowKey, etag, timestamp, properties);
+        var (sql, parameters) = BuildInsertSql(entity.PartitionKey, entity.RowKey, timestamp, properties);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
         foreach (var p in parameters) cmd.Parameters.Add(p);
@@ -156,7 +155,7 @@ public class SqliteTableClient : TableClient
             throw new RequestFailedException(409, "Entity already exists.", "EntityAlreadyExists", null);
         }
 
-        return StubResponse.NoContent(etag);
+        return StubResponse.NoContent("1");
     }
 
     /// <inheritdoc/>
@@ -194,7 +193,6 @@ public class SqliteTableClient : TableClient
     /// <inheritdoc/>
     public override async Task<Response> UpsertEntityAsync<T>(T entity, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
     {
-        var etag = NewETag();
         var timestamp = DateTimeOffset.UtcNow;
 
         using var conn = _serviceClient.Db.Open();
@@ -203,7 +201,7 @@ public class SqliteTableClient : TableClient
         {
             var properties = ExtractProperties(entity);
             EnsureColumns(conn, properties);
-            var (sql, parameters) = BuildUpsertSql(entity.PartitionKey, entity.RowKey, etag, timestamp, properties);
+            var (sql, parameters) = BuildUpsertSql(entity.PartitionKey, entity.RowKey, timestamp, properties);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = sql;
             foreach (var p in parameters) cmd.Parameters.Add(p);
@@ -216,14 +214,15 @@ public class SqliteTableClient : TableClient
             TableEntity merged = existing != null ? MergeEntities(existing, entity) : ToTableEntity(entity);
             var properties = ExtractPropertiesFromTableEntity(merged);
             EnsureColumns(conn, properties);
-            var (sql, parameters) = BuildUpsertSql(entity.PartitionKey, entity.RowKey, etag, timestamp, properties);
+            var (sql, parameters) = BuildUpsertSql(entity.PartitionKey, entity.RowKey, timestamp, properties);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = sql;
             foreach (var p in parameters) cmd.Parameters.Add(p);
             cmd.ExecuteNonQuery();
         }
 
-        return StubResponse.NoContent(etag);
+        var newEtag = ReadETag(conn, entity.PartitionKey, entity.RowKey);
+        return StubResponse.NoContent(newEtag);
     }
 
     /// <inheritdoc/>
@@ -233,29 +232,31 @@ public class SqliteTableClient : TableClient
     /// <inheritdoc/>
     public override async Task<Response> UpdateEntityAsync<T>(T entity, ETag ifMatch, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
     {
-        var etag = NewETag();
         var timestamp = DateTimeOffset.UtcNow;
 
         using var conn = _serviceClient.Db.Open();
+
+        // We don't actually need a transaction wrapping the read -
+        // the atomic UPDATE WHERE _etag=@expected handles concurrency.
+        // Just do the read, then the atomic update.
         var existing = ReadEntity(conn, entity.PartitionKey, entity.RowKey);
         if (existing == null)
             throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
-
-        var existingETag = existing.TryGetValue("odata.etag", out var eObj) && eObj is string es ? es : "";
-        if (ifMatch != ETag.All && ifMatch.ToString() != existingETag)
-            throw new RequestFailedException(412, "ETag mismatch.", "UpdateConditionNotSatisfied", null);
 
         TableEntity updated = mode == TableUpdateMode.Replace ? ToTableEntity(entity) : MergeEntities(existing, entity);
         var properties = ExtractPropertiesFromTableEntity(updated);
         EnsureColumns(conn, properties);
 
-        var (sql, parameters) = BuildUpdateSql(entity.PartitionKey, entity.RowKey, etag, timestamp, properties);
+        var (sql, parameters) = BuildUpdateSql(entity.PartitionKey, entity.RowKey, timestamp, properties, ifMatch);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
         foreach (var p in parameters) cmd.Parameters.Add(p);
-        cmd.ExecuteNonQuery();
+        var rows = cmd.ExecuteNonQuery();
+        if (rows == 0)
+            throw new RequestFailedException(412, "ETag mismatch.", "UpdateConditionNotSatisfied", null);
 
-        return StubResponse.NoContent(etag);
+        var newEtag = ReadETag(conn, entity.PartitionKey, entity.RowKey);
+        return StubResponse.NoContent(newEtag);
     }
 
     /// <inheritdoc/>
@@ -269,24 +270,33 @@ public class SqliteTableClient : TableClient
 
         using var conn = _serviceClient.Db.Open();
 
-        if (etag != ETag.All)
-        {
-            var existing = ReadEntity(conn, partitionKey, rowKey);
-            if (existing == null)
-                throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
-            var existingETag = existing.TryGetValue("odata.etag", out var eObj) && eObj is string es ? es : "";
-            if (etag.ToString() != existingETag)
-                throw new RequestFailedException(412, "ETag mismatch.", "UpdateConditionNotSatisfied", null);
-        }
-
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"DELETE FROM [{_tableName}] WHERE PartitionKey = @pk AND RowKey = @rk";
+        var where = "PartitionKey = @pk AND RowKey = @rk";
         cmd.Parameters.AddWithValue("@pk", partitionKey);
         cmd.Parameters.AddWithValue("@rk", rowKey);
+        if (etag != ETag.All)
+        {
+            if (!long.TryParse(etag.ToString()?.Trim('"'), out var expectedVersion))
+            {
+                // Non-numeric ETag can never match an integer version
+                var exists = ReadEntity(conn, partitionKey, rowKey);
+                throw exists == null
+                    ? new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null)
+                    : new RequestFailedException(412, "ETag mismatch.", "UpdateConditionNotSatisfied", null);
+            }
+            where += " AND _etag = @expectedEtag";
+            cmd.Parameters.AddWithValue("@expectedEtag", expectedVersion);
+        }
+        cmd.CommandText = $"DELETE FROM [{_tableName}] WHERE {where}";
         var rows = cmd.ExecuteNonQuery();
 
         if (rows == 0)
-            throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
+        {
+            var exists = ReadEntity(conn, partitionKey, rowKey);
+            throw exists == null
+                ? new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null)
+                : new RequestFailedException(412, "ETag mismatch.", "UpdateConditionNotSatisfied", null);
+        }
 
         return StubResponse.NoContent();
     }
@@ -355,7 +365,7 @@ public class SqliteTableClient : TableClient
         {
             var pk = reader.GetString(0);
             var rk = reader.GetString(1);
-            var etag = reader.GetString(2);
+            var etag = reader.GetInt64(2).ToString();
             var timestamp = DateTimeOffset.Parse(reader.GetString(3));
             var propsJson = reader.GetString(4);
             var entity = DeserializeToTableEntity(pk, rk, etag, timestamp, propsJson);
@@ -438,12 +448,11 @@ public class SqliteTableClient : TableClient
 
     private string AddEntityInTransaction(SqliteConnection conn, SqliteTransaction tx, ITableEntity entity)
     {
-        var etag = NewETag();
         var timestamp = DateTimeOffset.UtcNow;
         var properties = ExtractProperties(entity);
         EnsureColumns(conn, properties, tx);
 
-        var (sql, parameters) = BuildInsertSql(entity.PartitionKey, entity.RowKey, etag, timestamp, properties);
+        var (sql, parameters) = BuildInsertSql(entity.PartitionKey, entity.RowKey, timestamp, properties);
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = sql;
@@ -457,7 +466,7 @@ public class SqliteTableClient : TableClient
         {
             throw new RequestFailedException(409, "Entity already exists.", "EntityAlreadyExists", null);
         }
-        return etag;
+        return "1";
     }
 
     private string UpdateEntityInTransaction(SqliteConnection conn, SqliteTransaction tx, ITableEntity entity, ETag ifMatch, TableUpdateMode mode)
@@ -466,28 +475,24 @@ public class SqliteTableClient : TableClient
         if (existing == null)
             throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
 
-        var existingETag = existing.TryGetValue("odata.etag", out var eObj) && eObj is string es ? es : "";
-        if (ifMatch != ETag.All && ifMatch.ToString() != existingETag)
-            throw new RequestFailedException(412, "ETag mismatch.", "UpdateConditionNotSatisfied", null);
-
-        var etag = NewETag();
         var timestamp = DateTimeOffset.UtcNow;
         TableEntity updated = mode == TableUpdateMode.Replace ? ToTableEntity(entity) : MergeEntities(existing, entity);
         var properties = ExtractPropertiesFromTableEntity(updated);
         EnsureColumns(conn, properties, tx);
 
-        var (sql, parameters) = BuildUpdateSql(entity.PartitionKey, entity.RowKey, etag, timestamp, properties);
+        var (sql, parameters) = BuildUpdateSql(entity.PartitionKey, entity.RowKey, timestamp, properties, ifMatch);
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = sql;
         foreach (var p in parameters) cmd.Parameters.Add(p);
-        cmd.ExecuteNonQuery();
-        return etag;
+        var rows = cmd.ExecuteNonQuery();
+        if (rows == 0)
+            throw new RequestFailedException(412, "ETag mismatch.", "UpdateConditionNotSatisfied", null);
+        return ReadETag(conn, entity.PartitionKey, entity.RowKey, tx);
     }
 
     private string UpsertEntityInTransaction(SqliteConnection conn, SqliteTransaction tx, ITableEntity entity, TableUpdateMode mode)
     {
-        var etag = NewETag();
         var timestamp = DateTimeOffset.UtcNow;
 
         Dictionary<string, (TypedValue Typed, object? SqlValue)> properties;
@@ -503,51 +508,56 @@ public class SqliteTableClient : TableClient
         }
 
         EnsureColumns(conn, properties, tx);
-        var (sql, parameters) = BuildUpsertSql(entity.PartitionKey, entity.RowKey, etag, timestamp, properties);
+        var (sql, parameters) = BuildUpsertSql(entity.PartitionKey, entity.RowKey, timestamp, properties);
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = sql;
         foreach (var p in parameters) cmd.Parameters.Add(p);
         cmd.ExecuteNonQuery();
-        return etag;
+        return ReadETag(conn, entity.PartitionKey, entity.RowKey, tx);
     }
 
     private void DeleteEntityInTransaction(SqliteConnection conn, SqliteTransaction tx, string partitionKey, string rowKey, ETag ifMatch)
     {
-        if (ifMatch != ETag.All)
-        {
-            var existing = ReadEntity(conn, partitionKey, rowKey, tx);
-            if (existing == null)
-                throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
-            var existingETag = existing.TryGetValue("odata.etag", out var eObj) && eObj is string es ? es : "";
-            if (ifMatch.ToString() != existingETag)
-                throw new RequestFailedException(412, "ETag mismatch.", "UpdateConditionNotSatisfied", null);
-        }
-
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
-        cmd.CommandText = $"DELETE FROM [{_tableName}] WHERE PartitionKey = @pk AND RowKey = @rk";
+        var where = "PartitionKey = @pk AND RowKey = @rk";
         cmd.Parameters.AddWithValue("@pk", partitionKey);
         cmd.Parameters.AddWithValue("@rk", rowKey);
+        if (ifMatch != ETag.All)
+        {
+            if (!long.TryParse(ifMatch.ToString()?.Trim('"'), out var expectedVersion))
+                where += " AND 0";
+            else
+            {
+                where += " AND _etag = @expectedEtag";
+                cmd.Parameters.AddWithValue("@expectedEtag", expectedVersion);
+            }
+        }
+        cmd.CommandText = $"DELETE FROM [{_tableName}] WHERE {where}";
         var rows = cmd.ExecuteNonQuery();
 
         if (rows == 0)
-            throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
+        {
+            var exists = ReadEntity(conn, partitionKey, rowKey, tx);
+            if (exists == null)
+                throw new RequestFailedException(404, "Entity not found.", "ResourceNotFound", null);
+            throw new RequestFailedException(412, "ETag mismatch.", "UpdateConditionNotSatisfied", null);
+        }
     }
 
     // ---- SQL Builders ----
 
     private (string Sql, List<SqliteParameter> Parameters) BuildInsertSql(
-        string pk, string rk, string etag, DateTimeOffset timestamp,
+        string pk, string rk, DateTimeOffset timestamp,
         Dictionary<string, (TypedValue Typed, object? SqlValue)> properties)
     {
         var columns = new List<string> { "PartitionKey", "RowKey", "_etag", "_timestamp", "_properties" };
-        var paramNames = new List<string> { "@pk", "@rk", "@etag", "@ts", "@props" };
+        var paramNames = new List<string> { "@pk", "@rk", "1", "@ts", "@props" };
         var parameters = new List<SqliteParameter>
         {
             new("@pk", pk),
             new("@rk", rk),
-            new("@etag", etag),
             new("@ts", timestamp.ToString("O")),
             new("@props", SerializeTypedValues(properties)),
         };
@@ -566,19 +576,21 @@ public class SqliteTableClient : TableClient
     }
 
     private (string Sql, List<SqliteParameter> Parameters) BuildUpsertSql(
-        string pk, string rk, string etag, DateTimeOffset timestamp,
+        string pk, string rk, DateTimeOffset timestamp,
         Dictionary<string, (TypedValue Typed, object? SqlValue)> properties)
     {
         var columns = new List<string> { "PartitionKey", "RowKey", "_etag", "_timestamp", "_properties" };
-        var paramNames = new List<string> { "@pk", "@rk", "@etag", "@ts", "@props" };
+        var paramNames = new List<string> { "@pk", "@rk", "1", "@ts", "@props" };
         var parameters = new List<SqliteParameter>
         {
             new("@pk", pk),
             new("@rk", rk),
-            new("@etag", etag),
             new("@ts", timestamp.ToString("O")),
             new("@props", SerializeTypedValues(properties)),
         };
+
+        // Build SET clause for ON CONFLICT UPDATE (increment _etag)
+        var updateClauses = new List<string> { "_etag = _etag + 1", "_timestamp = @ts", "_properties = @props" };
 
         int i = 0;
         foreach (var kvp in properties)
@@ -587,20 +599,22 @@ public class SqliteTableClient : TableClient
             var pName = $"@v{i++}";
             paramNames.Add(pName);
             parameters.Add(new SqliteParameter(pName, kvp.Value.SqlValue ?? DBNull.Value));
+            updateClauses.Add($"[{kvp.Key}] = {pName}");
         }
 
-        var sql = $"INSERT OR REPLACE INTO [{_tableName}] ({string.Join(", ", columns)}) VALUES ({string.Join(", ", paramNames)})";
+        var sql = $"INSERT INTO [{_tableName}] ({string.Join(", ", columns)}) VALUES ({string.Join(", ", paramNames)}) " +
+                  $"ON CONFLICT(PartitionKey, RowKey) DO UPDATE SET {string.Join(", ", updateClauses)}";
         return (sql, parameters);
     }
 
     private (string Sql, List<SqliteParameter> Parameters) BuildUpdateSql(
-        string pk, string rk, string etag, DateTimeOffset timestamp,
-        Dictionary<string, (TypedValue Typed, object? SqlValue)> properties)
+        string pk, string rk, DateTimeOffset timestamp,
+        Dictionary<string, (TypedValue Typed, object? SqlValue)> properties,
+        ETag? ifMatch = null)
     {
-        var setClauses = new List<string> { "_etag = @etag", "_timestamp = @ts", "_properties = @props" };
+        var setClauses = new List<string> { "_etag = _etag + 1", "_timestamp = @ts", "_properties = @props" };
         var parameters = new List<SqliteParameter>
         {
-            new("@etag", etag),
             new("@ts", timestamp.ToString("O")),
             new("@props", SerializeTypedValues(properties)),
             new("@pk", pk),
@@ -615,7 +629,23 @@ public class SqliteTableClient : TableClient
             parameters.Add(new SqliteParameter(pName, kvp.Value.SqlValue ?? DBNull.Value));
         }
 
-        var sql = $"UPDATE [{_tableName}] SET {string.Join(", ", setClauses)} WHERE PartitionKey = @pk AND RowKey = @rk";
+        var where = "PartitionKey = @pk AND RowKey = @rk";
+        if (ifMatch != null && ifMatch != ETag.All)
+        {
+            var etagStr = ifMatch.Value.ToString()?.Trim('"') ?? "";
+            if (!long.TryParse(etagStr, out var expectedVersion))
+            {
+                // Non-numeric ETag → will never match, force 0 rows
+                where += " AND 0";
+            }
+            else
+            {
+                where += " AND _etag = @expectedEtag";
+                parameters.Add(new SqliteParameter("@expectedEtag", expectedVersion));
+            }
+        }
+
+        var sql = $"UPDATE [{_tableName}] SET {string.Join(", ", setClauses)} WHERE {where}";
         return (sql, parameters);
     }
 
@@ -752,19 +782,28 @@ public class SqliteTableClient : TableClient
         if (!reader.Read())
             return null;
 
-        var etag = reader.GetString(0);
+        var etag = reader.GetInt64(0).ToString();
         var timestamp = DateTimeOffset.Parse(reader.GetString(1));
         var propsJson = reader.GetString(2);
 
         return DeserializeToTableEntity(partitionKey, rowKey, etag, timestamp, propsJson);
     }
 
-    private static string NewETag() => $"0x{Guid.NewGuid():N}";
+    private string ReadETag(SqliteConnection conn, string partitionKey, string rowKey, SqliteTransaction? tx = null)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = $"SELECT _etag FROM [{_tableName}] WHERE PartitionKey = @pk AND RowKey = @rk";
+        cmd.Parameters.AddWithValue("@pk", partitionKey);
+        cmd.Parameters.AddWithValue("@rk", rowKey);
+        return cmd.ExecuteScalar()?.ToString() ?? "1";
+    }
 
     private static TableEntity DeserializeToTableEntity(string partitionKey, string rowKey, string etag, DateTimeOffset timestamp, string propsJson)
     {
         var entity = new TableEntity(partitionKey, rowKey)
         {
+            ETag = new ETag(etag),
             Timestamp = timestamp
         };
         entity["odata.etag"] = etag;

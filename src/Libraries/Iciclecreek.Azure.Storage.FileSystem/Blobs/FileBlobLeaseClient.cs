@@ -89,8 +89,13 @@ public class FileBlobLeaseClient : BlobLeaseClient
     /// <inheritdoc/>
     public override async Task<Response<ReleasedObjectInfo>> ReleaseAsync(RequestConditions? conditions = null, CancellationToken cancellationToken = default)
     {
-        var sidecar = await _blob._store.ReadSidecarAsync(_blob._blobName, cancellationToken).ConfigureAwait(false)
-            ?? throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
+        var sidecar = await _blob._store.ReadSidecarAsync(_blob._blobName, cancellationToken).ConfigureAwait(false);
+        if (sidecar == null)
+        {
+            // Blob already deleted — lock is implicitly released
+            var now = DateTimeOffset.UtcNow;
+            return Response.FromValue(new ReleasedObjectInfo(new ETag("\"0x0\""), now), StubResponse.Ok());
+        }
 
         if (sidecar.LeaseId != _leaseId)
             throw new RequestFailedException(409, "Lease ID mismatch.", "LeaseIdMismatchWithLeaseOperation", null);

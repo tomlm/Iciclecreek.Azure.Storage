@@ -8,8 +8,8 @@
   </PropertyGroup>
   
   <PropertyGroup>
-    <Version>2.0.1</Version>
-    <AssemblyVersion>2.0.1.0</AssemblyVersion>
+    <Version>2.0.2</Version>
+    <AssemblyVersion>2.0.2.0</AssemblyVersion>
     <Description>This library implements a drop in replacement for Azure.Data.Tables TableClient that uses local file system to implement blob and table API</Description>
     <Company>Iciclecreek</Company>
     <Authors>Tom Laird-McConnell</Authors>

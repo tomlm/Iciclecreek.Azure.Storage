@@ -49,7 +49,7 @@ internal sealed class SqliteDb
             CREATE TABLE IF NOT EXISTS [{tableName}] (
                 PartitionKey TEXT NOT NULL,
                 RowKey TEXT NOT NULL,
-                _etag TEXT NOT NULL,
+                _etag INTEGER NOT NULL DEFAULT 1,
                 _timestamp TEXT NOT NULL,
                 _properties TEXT NOT NULL,
                 PRIMARY KEY (PartitionKey, RowKey)
