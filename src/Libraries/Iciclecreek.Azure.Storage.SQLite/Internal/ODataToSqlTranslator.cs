@@ -106,11 +106,37 @@ internal static class ODataToSqlTranslator
 
         // datetime literal: datetime'...'
         if (v.StartsWith("datetime'", StringComparison.OrdinalIgnoreCase) && v.EndsWith('\''))
-            return v[9..^1]; // Store as text for comparison
+        {
+            var raw = v[9..^1];
+            // Normalize to UTC "Z" form so it matches the stored format (ToUniversalTime().ToString("O"))
+            if (DateTimeOffset.TryParse(raw, null, System.Globalization.DateTimeStyles.RoundtripKind, out var dto))
+                return dto.UtcDateTime.ToString("O");
+            return raw;
+        }
 
         // guid literal: guid'...'
         if (v.StartsWith("guid'", StringComparison.OrdinalIgnoreCase) && v.EndsWith('\''))
             return v[5..^1];
+
+        // binary literal: binary'<hex>'
+        if (v.StartsWith("binary'", StringComparison.OrdinalIgnoreCase) && v.EndsWith('\''))
+        {
+            var hex = v[7..^1];
+            var bytes = new byte[hex.Length / 2];
+            for (var idx = 0; idx < bytes.Length; idx++)
+                bytes[idx] = Convert.ToByte(hex.Substring(idx * 2, 2), 16);
+            return bytes;
+        }
+
+        // binary literal: X'<hex>'
+        if (v.StartsWith("X'", StringComparison.OrdinalIgnoreCase) && v.EndsWith('\''))
+        {
+            var hex = v[2..^1];
+            var bytes = new byte[hex.Length / 2];
+            for (var idx = 0; idx < bytes.Length; idx++)
+                bytes[idx] = Convert.ToByte(hex.Substring(idx * 2, 2), 16);
+            return bytes;
+        }
 
         // long (contains L suffix)
         if (v.EndsWith('L') && long.TryParse(v[..^1], out var l))
@@ -224,8 +250,8 @@ internal static class ODataToSqlTranslator
                 tokens.Add(new Token(filter[start..i]));
                 continue;
             }
-            // datetime'...' or guid'...'
-            if (i + 5 < filter.Length && (filter[i..].StartsWith("datetime'", StringComparison.OrdinalIgnoreCase) || filter[i..].StartsWith("guid'", StringComparison.OrdinalIgnoreCase)))
+            // datetime'...' or guid'...' or binary'...' or X'...'
+            if (i + 2 < filter.Length && (filter[i..].StartsWith("datetime'", StringComparison.OrdinalIgnoreCase) || filter[i..].StartsWith("guid'", StringComparison.OrdinalIgnoreCase) || filter[i..].StartsWith("binary'", StringComparison.OrdinalIgnoreCase) || filter[i..].StartsWith("X'", StringComparison.OrdinalIgnoreCase)))
             {
                 var start = i;
                 i = filter.IndexOf('\'', i) + 1; // skip to first '

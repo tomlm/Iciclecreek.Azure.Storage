@@ -165,4 +165,312 @@ public abstract class TableQueryTestsBase
         names.Sort();
         Assert.That(names.ToArray(), Is.EqualTo(new[] { "alpha", "beta" }));
     }
+
+    // ── OData property-type query tests ────────────────────────────────
+
+    private static readonly DateTimeOffset _refDto = new DateTimeOffset(2024, 6, 15, 12, 0, 0, TimeSpan.Zero);
+    private static readonly DateTime _refDt = _refDto.UtcDateTime;
+    private static readonly Guid _refGuid = new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+    private static readonly byte[] _refBytes = new byte[] { 1, 2, 3 };
+
+    protected TableClient SetupTypedTable()
+    {
+        var client = _fixture.CreateTableClient("typed");
+        client.CreateIfNotExists();
+        client.AddEntity(new TableEntity("pk", "r1")
+        {
+            ["Str"]    = "hello",
+            ["Int32"]  = (int)10,
+            ["Int64"]  = (long)100L,
+            ["Dbl"]    = (double)1.5,
+            ["Bool"]   = true,
+            ["Dt"]     = _refDt,
+            ["Dto"]    = _refDto,
+            ["Guid"]   = _refGuid,
+            ["Bytes"]  = _refBytes,
+        });
+        client.AddEntity(new TableEntity("pk", "r2")
+        {
+            ["Str"]    = "world",
+            ["Int32"]  = (int)20,
+            ["Int64"]  = (long)200L,
+            ["Dbl"]    = (double)3.0,
+            ["Bool"]   = false,
+            ["Dt"]     = _refDt.AddDays(1),
+            ["Dto"]    = _refDto.AddDays(1),
+            ["Guid"]   = Guid.Empty,
+            ["Bytes"]  = new byte[] { 4, 5, 6 },
+        });
+        return client;
+    }
+
+    // string eq / ne
+
+    [Test]
+    public void OData_String_Eq()
+    {
+        var client = SetupTypedTable();
+        var results = client.Query<TableEntity>("Str eq 'hello'").ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public void OData_String_Ne()
+    {
+        var client = SetupTypedTable();
+        var results = client.Query<TableEntity>("Str ne 'hello'").ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r2"));
+    }
+
+    // int eq / lt / gt / le / ge
+
+    [Test]
+    public void OData_Int32_Eq()
+    {
+        var client = SetupTypedTable();
+        var results = client.Query<TableEntity>("Int32 eq 10").ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public void OData_Int32_Lt()
+    {
+        var client = SetupTypedTable();
+        var results = client.Query<TableEntity>("Int32 lt 20").ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public void OData_Int32_Gt()
+    {
+        var client = SetupTypedTable();
+        var results = client.Query<TableEntity>("Int32 gt 10").ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r2"));
+    }
+
+    [Test]
+    public void OData_Int32_Le()
+    {
+        var client = SetupTypedTable();
+        var results = client.Query<TableEntity>("Int32 le 10").ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public void OData_Int32_Ge()
+    {
+        var client = SetupTypedTable();
+        var results = client.Query<TableEntity>("Int32 ge 20").ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r2"));
+    }
+
+    // long (int64)
+
+    [Test]
+    public void OData_Int64_Eq()
+    {
+        var client = SetupTypedTable();
+        var results = client.Query<TableEntity>("Int64 eq 100L").ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public void OData_Int64_Gt()
+    {
+        var client = SetupTypedTable();
+        var results = client.Query<TableEntity>("Int64 gt 100L").ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r2"));
+    }
+
+    // double
+
+    [Test]
+    public void OData_Double_Eq()
+    {
+        var client = SetupTypedTable();
+        var results = client.Query<TableEntity>("Dbl eq 1.5").ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public void OData_Double_Lt()
+    {
+        var client = SetupTypedTable();
+        var results = client.Query<TableEntity>("Dbl lt 2.0").ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    // bool
+
+    [Test]
+    public void OData_Bool_Eq_True()
+    {
+        var client = SetupTypedTable();
+        var results = client.Query<TableEntity>("Bool eq true").ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public void OData_Bool_Eq_False()
+    {
+        var client = SetupTypedTable();
+        var results = client.Query<TableEntity>("Bool eq false").ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r2"));
+    }
+
+    // DateTime
+
+    [Test]
+    public void OData_DateTime_Eq()
+    {
+        var client = SetupTypedTable();
+        var filter = $"Dt eq datetime'{_refDt:yyyy-MM-ddTHH:mm:ssZ}'";
+        var results = client.Query<TableEntity>(filter).ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public void OData_DateTime_Lt()
+    {
+        var client = SetupTypedTable();
+        var filter = $"Dt lt datetime'{_refDt.AddDays(1):yyyy-MM-ddTHH:mm:ssZ}'";
+        var results = client.Query<TableEntity>(filter).ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public void OData_DateTime_Gt()
+    {
+        var client = SetupTypedTable();
+        var filter = $"Dt gt datetime'{_refDt:yyyy-MM-ddTHH:mm:ssZ}'";
+        var results = client.Query<TableEntity>(filter).ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r2"));
+    }
+
+    // DateTimeOffset
+
+    [Test]
+    public void OData_DateTimeOffset_Eq()
+    {
+        var client = SetupTypedTable();
+        var filter = $"Dto eq datetime'{_refDto:yyyy-MM-ddTHH:mm:ssZ}'";
+        var results = client.Query<TableEntity>(filter).ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public void OData_DateTimeOffset_Lt()
+    {
+        var client = SetupTypedTable();
+        var filter = $"Dto lt datetime'{_refDto.AddDays(1):yyyy-MM-ddTHH:mm:ssZ}'";
+        var results = client.Query<TableEntity>(filter).ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    // Guid
+
+    [Test]
+    public void OData_Guid_Eq()
+    {
+        var client = SetupTypedTable();
+        var filter = $"Guid eq guid'{_refGuid}'";
+        var results = client.Query<TableEntity>(filter).ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public void OData_Guid_Ne()
+    {
+        var client = SetupTypedTable();
+        var filter = $"Guid ne guid'{_refGuid}'";
+        var results = client.Query<TableEntity>(filter).ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r2"));
+    }
+
+    // Binary
+
+    [Test]
+    public void OData_Binary_Eq()
+    {
+        var client = SetupTypedTable();
+        var hex = BitConverter.ToString(_refBytes).Replace("-", string.Empty).ToLowerInvariant();
+        var filter = $"Bytes eq binary'{hex}'";
+        var results = client.Query<TableEntity>(filter).ToList();
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    // Async variants for OData property types
+
+    [Test]
+    public async Task OData_String_Eq_Async()
+    {
+        var client = SetupTypedTable();
+        var results = new List<TableEntity>();
+        await foreach (var e in client.QueryAsync<TableEntity>("Str eq 'hello'")) results.Add(e);
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public async Task OData_Int32_Eq_Async()
+    {
+        var client = SetupTypedTable();
+        var results = new List<TableEntity>();
+        await foreach (var e in client.QueryAsync<TableEntity>("Int32 eq 10")) results.Add(e);
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public async Task OData_Bool_Eq_True_Async()
+    {
+        var client = SetupTypedTable();
+        var results = new List<TableEntity>();
+        await foreach (var e in client.QueryAsync<TableEntity>("Bool eq true")) results.Add(e);
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public async Task OData_DateTime_Eq_Async()
+    {
+        var client = SetupTypedTable();
+        var filter = $"Dt eq datetime'{_refDt:yyyy-MM-ddTHH:mm:ssZ}'";
+        var results = new List<TableEntity>();
+        await foreach (var e in client.QueryAsync<TableEntity>(filter)) results.Add(e);
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
+
+    [Test]
+    public async Task OData_Guid_Eq_Async()
+    {
+        var client = SetupTypedTable();
+        var filter = $"Guid eq guid'{_refGuid}'";
+        var results = new List<TableEntity>();
+        await foreach (var e in client.QueryAsync<TableEntity>(filter)) results.Add(e);
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].RowKey, Is.EqualTo("r1"));
+    }
 }
