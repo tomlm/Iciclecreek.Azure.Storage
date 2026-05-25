@@ -18,5 +18,6 @@
     <Project Path="Tests/Iciclecreek.Azure.Storage.SQLite.Tests/Iciclecreek.Azure.Storage.SQLite.Tests.csproj" />
     <Project Path="Tests/Iciclecreek.Azure.Storage.Tests.Shared/Iciclecreek.Azure.Storage.Tests.Shared.csproj" />
   </Folder>
+  <Project Path="BenchmarkSuite1/BenchmarkSuite.csproj" />
   <Project Path="TestServer/TestServer.csproj" />
 </Solution>
