@@ -9,8 +9,8 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Version>2.0.3</Version>
-    <AssemblyVersion>2.0.3.0</AssemblyVersion>
+    <Version>2.0.4</Version>
+    <AssemblyVersion>2.0.4.0</AssemblyVersion>
     <Description>SQLite-backed drop-in replacement for Azure.Data.Tables, Azure.Storage.Blobs, and Azure.Storage.Queues SDK clients.</Description>
     <Company>Iciclecreek</Company>
     <Authors>Tom Laird-McConnell</Authors>
@@ -32,8 +32,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.13" Condition="'$(TargetFramework)' == 'net8.0'" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.8" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <!-- Force patched native SQLite engine (SQLite 3.50.4 via SourceGear.sqlite3) to resolve CVE-2025-6965;
+         Microsoft.Data.Sqlite otherwise pulls the vulnerable SQLitePCLRaw.lib.e_sqlite3 2.1.x bundle. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
     <PackageReference Include="Azure.Data.Tables" Version="12.11.0" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.28.0" />
     <PackageReference Include="Azure.Storage.Queues" Version="12.26.0" />
