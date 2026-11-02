@@ -2,6 +2,7 @@
   <Folder Name="/Libraries/">
     <Project Path="Libraries/Iciclecreek.Azure.Storage.FileSystem/Iciclecreek.Azure.Storage.FileSystem.csproj" />
     <Project Path="Libraries/Iciclecreek.Azure.Storage.Memory/Iciclecreek.Azure.Storage.Memory.csproj" />
+    <Project Path="Libraries/Iciclecreek.Azure.Storage.OData/Iciclecreek.Azure.Storage.OData.csproj" />
     <Project Path="Libraries/Iciclecreek.Azure.Storage.Server/Iciclecreek.Azure.Storage.Server.csproj" />
     <Project Path="Libraries/Iciclecreek.Azure.Storage.SQLite/Iciclecreek.Azure.Storage.SQLite.csproj" />
   </Folder>

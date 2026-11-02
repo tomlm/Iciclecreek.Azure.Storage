@@ -1,9 +1,23 @@
 using Azure.Data.Tables;
 
-namespace Iciclecreek.Azure.Storage.Internal;
+namespace Iciclecreek.Azure.Storage.OData;
 
-internal static class ODataFilterParser
+/// <summary>
+/// Compiles an Azure Table Storage OData <c>$filter</c> expression into a predicate over
+/// <see cref="TableEntity"/> rows.
+/// </summary>
+public static class ODataFilterParser
 {
+    /// <summary>
+    /// Parse a filter such as <c>PartitionKey eq 'p1' and Age ge 21</c> into a predicate.
+    /// Supports <c>and</c>, <c>or</c>, <c>not</c>, parentheses, the <c>eq</c>/<c>ne</c>/<c>gt</c>/
+    /// <c>ge</c>/<c>lt</c>/<c>le</c> operators, and the OData v3 literals Azure Table Storage uses:
+    /// strings, booleans, numbers (<c>L</c> suffix for 64-bit), <c>datetime'…'</c>, <c>guid'…'</c>
+    /// and <c>X'…'</c>/<c>binary'…'</c>. An empty filter matches every row.
+    /// </summary>
+    /// <param name="filter">The OData filter expression.</param>
+    /// <returns>A predicate that is true for the rows the filter matches.</returns>
+    /// <exception cref="NotSupportedException">The filter uses syntax this parser does not support.</exception>
     public static Func<TableEntity, bool> Parse(string filter)
     {
         if (string.IsNullOrWhiteSpace(filter))

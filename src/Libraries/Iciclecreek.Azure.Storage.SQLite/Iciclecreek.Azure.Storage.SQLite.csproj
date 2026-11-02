@@ -32,13 +32,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <!-- Force patched native SQLite engine (SQLite 3.50.4 via SourceGear.sqlite3) to resolve CVE-2025-6965;
          Microsoft.Data.Sqlite otherwise pulls the vulnerable SQLitePCLRaw.lib.e_sqlite3 2.1.x bundle. -->
-    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
-    <PackageReference Include="Azure.Data.Tables" Version="12.11.0" />
-    <PackageReference Include="Azure.Storage.Blobs" Version="12.28.0" />
-    <PackageReference Include="Azure.Storage.Queues" Version="12.26.0" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+    <PackageReference Include="Azure.Data.Tables" Version="12.13.0" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.30.1" />
+    <PackageReference Include="Azure.Storage.Queues" Version="12.28.1" />
   </ItemGroup>
 
   <ItemGroup>
