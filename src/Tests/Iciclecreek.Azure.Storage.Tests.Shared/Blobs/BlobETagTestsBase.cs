@@ -145,7 +145,7 @@ public abstract class BlobETagTestsBase
 
         await client.UploadAsync(BinaryData.FromString("v2"), overwrite: true);
 
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.UploadAsync(BinaryData.FromString("v3"), new BlobUploadOptions
             {
                 Conditions = new BlobRequestConditions { IfMatch = staleEtag }
@@ -178,7 +178,7 @@ public abstract class BlobETagTestsBase
         BlobClient client = container.GetBlobClient("blob.txt");
         await client.UploadAsync(BinaryData.FromString("v1"));
 
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.UploadAsync(BinaryData.FromString("v2"), overwrite: false));
         Assert.That(ex!.Status, Is.EqualTo(409));
     }
@@ -270,7 +270,7 @@ public abstract class BlobETagTestsBase
 
         await client.UploadAsync(BinaryData.FromString("v2"), overwrite: true);
 
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.DeleteAsync(conditions: new BlobRequestConditions { IfMatch = staleEtag }));
         Assert.That(ex!.Status, Is.EqualTo(412));
     }
@@ -308,7 +308,7 @@ public abstract class BlobETagTestsBase
 
         await client.UploadAsync(BinaryData.FromString("v2"), overwrite: true);
 
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.SetMetadataAsync(
                 new Dictionary<string, string> { ["key"] = "value" },
                 new BlobRequestConditions { IfMatch = staleEtag }));
@@ -371,7 +371,7 @@ public abstract class BlobETagTestsBase
         Assert.That(r2.Value.ETag, Is.Not.EqualTo(currentEtag));
 
         // Second writer with stale ETag fails
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.UploadAsync(BinaryData.FromString("v3"), new BlobUploadOptions
             {
                 Conditions = new BlobRequestConditions { IfMatch = currentEtag }

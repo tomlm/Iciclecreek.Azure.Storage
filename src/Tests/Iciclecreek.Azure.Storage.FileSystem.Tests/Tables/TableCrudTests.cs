@@ -253,7 +253,7 @@ public class TableCrudTests
         await client.CreateIfNotExistsAsync();
 
         await client.AddEntityAsync(new TableEntity("pk", "rk"));
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.AddEntityAsync(new TableEntity("pk", "rk")));
         Assert.That(ex!.Status, Is.EqualTo(409));
     }
@@ -295,7 +295,7 @@ public class TableCrudTests
         await client.AddEntityAsync(new TableEntity("pk", "rk"));
         await client.DeleteEntityAsync("pk", "rk");
 
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.GetEntityAsync<TableEntity>("pk", "rk"));
         Assert.That(ex!.Status, Is.EqualTo(404));
     }
@@ -313,7 +313,7 @@ public class TableCrudTests
         // Change the entity to move the ETag forward.
         await client.UpsertEntityAsync(new TableEntity("pk", "rk") { ["V"] = "2" }, TableUpdateMode.Replace);
 
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.UpdateEntityAsync(new TableEntity("pk", "rk") { ["V"] = "3" }, etag1, TableUpdateMode.Replace));
         Assert.That(ex!.Status, Is.EqualTo(412));
     }
@@ -327,7 +327,7 @@ public class TableCrudTests
         await client.AddEntityAsync(new TableEntity("pk", "rk") { ["V"] = "1" });
         await client.UpsertEntityAsync(new TableEntity("pk", "rk") { ["V"] = "2" }, TableUpdateMode.Replace);
 
-        Assert.DoesNotThrowAsync(async () =>
+        await Assert.DoesNotThrowAsync(async () =>
             await client.UpdateEntityAsync(new TableEntity("pk", "rk") { ["V"] = "3" }, ETag.All, TableUpdateMode.Replace));
     }
 
@@ -372,7 +372,7 @@ public class TableCrudTests
             etag1, TableUpdateMode.Replace);
 
         // Reader 2's update should fail — stale ETag.
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.UpdateEntityAsync(
                 new TableEntity("pk", "rk") { ["Counter"] = 1 },
                 etag2, TableUpdateMode.Replace));
@@ -394,7 +394,7 @@ public class TableCrudTests
 
         await client.UpsertEntityAsync(new TableEntity("pk", "rk") { ["V"] = "2" }, TableUpdateMode.Replace);
 
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.DeleteEntityAsync("pk", "rk", staleETag));
         Assert.That(ex!.Status, Is.EqualTo(412));
     }
@@ -408,9 +408,9 @@ public class TableCrudTests
         await client.AddEntityAsync(new TableEntity("pk", "rk"));
         var currentETag = (await client.GetEntityAsync<TableEntity>("pk", "rk")).Value.ETag;
 
-        Assert.DoesNotThrowAsync(async () => await client.DeleteEntityAsync("pk", "rk", currentETag));
+        await Assert.DoesNotThrowAsync(async () => await client.DeleteEntityAsync("pk", "rk", currentETag));
 
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.GetEntityAsync<TableEntity>("pk", "rk"));
         Assert.That(ex!.Status, Is.EqualTo(404));
     }

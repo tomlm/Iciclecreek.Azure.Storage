@@ -217,7 +217,7 @@ public class QueueMessageTests
         await _client.SendMessageAsync("async delete");
 
         var msg = (await _client.ReceiveMessageAsync()).Value;
-        Assert.DoesNotThrowAsync(() =>
+        await Assert.DoesNotThrowAsync(() =>
             _client.DeleteMessageAsync(msg.MessageId, msg.PopReceipt));
     }
 

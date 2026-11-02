@@ -34,7 +34,7 @@ public abstract class BlobContainerCrudTestsBase
     {
         var container = _fixture.CreateBlobContainerClient("duplicate");
         await container.CreateAsync();
-        Assert.ThrowsAsync<RequestFailedException>(async () => await container.CreateAsync());
+        await Assert.ThrowsAsync<RequestFailedException>(async () => await container.CreateAsync());
     }
 
     // ── CreateIfNotExists_Is_Idempotent ────────────────────────────────

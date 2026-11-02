@@ -93,13 +93,13 @@ public abstract class AppendBlobTestsBase
     }
 
     [Test]
-    public void AppendBlock_Without_Create_Throws_404_Async()
+    public async Task AppendBlock_Without_Create_Throws_404_Async()
     {
         var container = _fixture.CreateBlobContainerClient("append-nocreate-async");
         container.CreateIfNotExists();
         var client = _fixture.CreateAppendBlobClient(container, "missing.txt");
 
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.AppendBlockAsync(new MemoryStream("data"u8.ToArray())));
         Assert.That(ex!.Status, Is.EqualTo(404));
     }

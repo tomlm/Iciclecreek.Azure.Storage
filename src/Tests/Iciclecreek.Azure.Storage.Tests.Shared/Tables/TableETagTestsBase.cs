@@ -147,7 +147,7 @@ public abstract class TableETagTestsBase
         var etag = addResp.Headers.ETag!.Value;
 
         entity["Name"] = "Eve Updated";
-        Assert.DoesNotThrowAsync(async () =>
+        await Assert.DoesNotThrowAsync(async () =>
         {
             await client.UpdateEntityAsync(entity, etag, TableUpdateMode.Replace);
         });
@@ -167,7 +167,7 @@ public abstract class TableETagTestsBase
         entity["Name"] = "Frank Updated";
         var staleETag = new ETag("0xstale");
 
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
         {
             await client.UpdateEntityAsync(entity, staleETag, TableUpdateMode.Replace);
         });
@@ -186,7 +186,7 @@ public abstract class TableETagTestsBase
         var addResp = await client.AddEntityAsync(entity);
         var etag = addResp.Headers.ETag!.Value;
 
-        Assert.DoesNotThrowAsync(async () =>
+        await Assert.DoesNotThrowAsync(async () =>
         {
             await client.DeleteEntityAsync("pk", "rk1", etag);
         });
@@ -204,7 +204,7 @@ public abstract class TableETagTestsBase
         await client.AddEntityAsync(entity);
 
         var staleETag = new ETag("0xstale");
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
         {
             await client.DeleteEntityAsync("pk", "rk1", staleETag);
         });
@@ -223,7 +223,7 @@ public abstract class TableETagTestsBase
         await client.AddEntityAsync(entity);
 
         entity["Name"] = "Ivy Updated";
-        Assert.DoesNotThrowAsync(async () =>
+        await Assert.DoesNotThrowAsync(async () =>
         {
             await client.UpdateEntityAsync(entity, ETag.All, TableUpdateMode.Replace);
         });

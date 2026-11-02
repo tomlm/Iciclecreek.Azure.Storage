@@ -102,10 +102,10 @@ public abstract class TableTransactionTestsBase
             new TableTransactionAction(TableTransactionActionType.Add, new TableEntity("pk", "existing")), // will 409
         };
 
-        Assert.ThrowsAsync<TableTransactionFailedException>(async () => await client.SubmitTransactionAsync(actions));
+        await Assert.ThrowsAsync<TableTransactionFailedException>(async () => await client.SubmitTransactionAsync(actions));
 
         // new1 should have been rolled back.
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.GetEntityAsync<TableEntity>("pk", "new1"));
         Assert.That(ex!.Status, Is.EqualTo(404));
 
@@ -143,6 +143,6 @@ public abstract class TableTransactionTestsBase
             new TableTransactionAction(TableTransactionActionType.Add, new TableEntity("pk2", "r2")),
         };
 
-        Assert.ThrowsAsync<RequestFailedException>(async () => await client.SubmitTransactionAsync(actions));
+        await Assert.ThrowsAsync<RequestFailedException>(async () => await client.SubmitTransactionAsync(actions));
     }
 }

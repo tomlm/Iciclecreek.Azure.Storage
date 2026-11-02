@@ -51,13 +51,13 @@ public abstract class BlobAdvancedFeatureTestsBase
     }
 
     [Test]
-    public void OpenRead_Missing_Blob_Throws_404()
+    public async Task OpenRead_Missing_Blob_Throws_404()
     {
         var container = _fixture.CreateBlobContainerClient("openread-miss");
         container.CreateIfNotExists();
 
         var client = container.GetBlobClient("missing.txt");
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () => await client.OpenReadAsync());
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () => await client.OpenReadAsync());
         Assert.That(ex!.Status, Is.EqualTo(404));
     }
 
@@ -97,13 +97,13 @@ public abstract class BlobAdvancedFeatureTestsBase
     }
 
     [Test]
-    public void DownloadTo_Missing_Blob_Throws_404()
+    public async Task DownloadTo_Missing_Blob_Throws_404()
     {
         var container = _fixture.CreateBlobContainerClient("downloadto-miss");
         container.CreateIfNotExists();
 
         var client = container.GetBlobClient("nope.txt");
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.DownloadToAsync(new MemoryStream()));
         Assert.That(ex!.Status, Is.EqualTo(404));
     }
@@ -274,7 +274,7 @@ public abstract class BlobAdvancedFeatureTestsBase
         var client = container.GetBlobClient("existing.txt");
         await client.UploadAsync(BinaryData.FromString("first"));
 
-        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(async () =>
             await client.OpenWriteAsync(overwrite: false));
         Assert.That(ex!.Status, Is.EqualTo(409));
     }
