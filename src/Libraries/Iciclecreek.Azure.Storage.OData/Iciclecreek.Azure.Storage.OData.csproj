@@ -10,8 +10,8 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Version>2.0.4</Version>
-    <AssemblyVersion>2.0.4.0</AssemblyVersion>
+    <Version>2.1.0</Version>
+    <AssemblyVersion>2.1.0.0</AssemblyVersion>
     <Description>OData filter support for Azure Table Storage: evaluates the OData v3 $filter syntax used by Azure.Data.Tables (including datetime'', guid'', binary and 64-bit literals) against TableEntity rows. Shared by the Iciclecreek.Azure.Storage providers.</Description>
     <Company>Iciclecreek</Company>
     <Authors>Tom Laird-McConnell</Authors>
