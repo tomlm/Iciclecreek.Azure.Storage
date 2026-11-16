@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using Iciclecreek.Azure.Storage.Lucene.Blobs;
-using Iciclecreek.Azure.Storage.Lucene.Queues;
 using Iciclecreek.Azure.Storage.Lucene.Tables;
+using Iciclecreek.Azure.Storage.Lucene.Tests.Infrastructure;
 using LuceneDirectory = Lucene.Net.Store.Directory;
 using RAMDirectory = Lucene.Net.Store.RAMDirectory;
 
@@ -11,7 +11,9 @@ namespace Iciclecreek.Azure.Storage.Lucene.Tests.Directories;
 /// What the clients promise about the directory factory they are given: each directory is asked
 /// for once, and is disposed with the client.
 /// </summary>
-public class DirectoryFactoryTests
+[TestFixture(false)]
+[TestFixture(true)]
+public class DirectoryFactoryTests(bool queuesAsFiles)
 {
     private readonly ConcurrentBag<(string Path, RAMDirectory Directory)> _made = [];
 
@@ -44,7 +46,7 @@ public class DirectoryFactoryTests
     public void Each_Directory_Is_Asked_For_Once_However_Many_Threads_First_Use_It_Together()
     {
         using var tables = new LuceneTableServiceClient(Make);
-        using var queues = new LuceneQueueServiceClient(Make);
+        using var queues = QueueServices.On(Make, queuesAsFiles);
         using var blobs = new LuceneBlobServiceClient(Make);
         using var start = new ManualResetEventSlim();
         var users = Enumerable.Range(0, 16).Select(n => Task.Run(async () =>
@@ -67,7 +69,7 @@ public class DirectoryFactoryTests
     public async Task Every_Directory_Handed_Out_Is_Disposed_With_Its_Client()
     {
         var tables = new LuceneTableServiceClient(Make);
-        var queues = new LuceneQueueServiceClient(Make);
+        var queues = QueueServices.On(Make, queuesAsFiles);
         var blobs = new LuceneBlobServiceClient(Make);
         tables.GetTableClient("t").Create();
         queues.GetQueueClient("q").Create();
@@ -88,7 +90,7 @@ public class DirectoryFactoryTests
     public void After_Dispose_The_Queue_Client_Asks_Again_And_The_Table_Client_Cannot_Be_Used()
     {
         var tables = new LuceneTableServiceClient(Make);
-        using var queues = new LuceneQueueServiceClient(Make);
+        using var queues = QueueServices.On(Make, queuesAsFiles);
         tables.GetTableClient("t").CreateIfNotExists();
         queues.GetQueueClient("q").CreateIfNotExists();
         tables.Dispose();

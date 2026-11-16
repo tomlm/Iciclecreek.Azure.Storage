@@ -17,12 +17,19 @@ public sealed class LuceneStorageTestFixture : StorageTestFixture
 {
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "IciclecreekLuceneQueues-" + Guid.NewGuid().ToString("N"));
 
+    private readonly bool _queuesAsFiles;
+
     /// <param name="onDisk">True to keep the indexes in a folder, as a real deployment would.</param>
-    public LuceneStorageTestFixture(bool onDisk = false)
+    /// <param name="queuesAsFiles">True to keep each queue as a directory of files rather than as an index.</param>
+    public LuceneStorageTestFixture(bool onDisk = false, bool queuesAsFiles = false)
     {
-        QueueService = onDisk ? new LuceneQueueServiceClient(_folder) : new LuceneQueueServiceClient();
+        _queuesAsFiles = queuesAsFiles;
+        QueueService = onDisk ? QueueServices.InFolder(_folder, queuesAsFiles) : QueueServices.InMemory(queuesAsFiles);
         TableService = onDisk ? new LuceneTableServiceClient(_folder) : new LuceneTableServiceClient();
     }
+
+    /// <summary>Another queue service client on the fixture's folder, keeping its queues the same way.</summary>
+    public LuceneQueueServiceClient OpenQueueService() => QueueServices.InFolder(_folder, _queuesAsFiles);
 
     public LuceneTableServiceClient TableService { get; }
 

@@ -34,7 +34,7 @@ internal sealed class StoredMessage
 /// (see <see cref="IndexWriteLock"/>).
 /// </para>
 /// </summary>
-internal sealed class LuceneQueueStore : IDisposable
+internal sealed class LuceneQueueStore : IQueueStore
 {
     private const string Registry = "queues/" + StorageNames.Registry;
     private const string SequenceKey = "sequence";

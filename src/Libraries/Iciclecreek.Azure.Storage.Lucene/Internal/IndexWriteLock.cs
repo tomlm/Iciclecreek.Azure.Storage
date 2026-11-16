@@ -134,13 +134,38 @@ internal static class IndexWriteLock
             }
             catch (LockObtainFailedException ex)
             {
-                if (waited.Elapsed >= LockWait)
-                    throw new RequestFailedException(503,
-                        $"The index is being written to by another process and did not become free within {LockWait.TotalSeconds:0} seconds. Try again.",
-                        "ServerBusy", ex);
-                // Uneven delays, so two waiting processes do not keep trying at the same instants.
-                Thread.Sleep(Random.Shared.Next(MinRetryDelayMs, MaxRetryDelayMs + 1));
+                WaitToTryAgain(waited, ex);
             }
         }
+    }
+
+    /// <summary>
+    /// Takes the write lock of a directory that is written to as plain files, with no index
+    /// writer. It is the lock an index writer would take, tried the same way and for as long;
+    /// disposing it lets the directory go. The caller holds the directory's gate.
+    /// </summary>
+    public static global::Lucene.Net.Store.Lock ObtainLock(LuceneDirectory directory)
+    {
+        var waited = Stopwatch.StartNew();
+        while (true)
+        {
+            var writeLock = directory.MakeLock(IndexWriter.WRITE_LOCK_NAME);
+            if (writeLock.Obtain())
+                return writeLock;
+            // Not disposed: a lock that was refused may be the very object its holder has (a folder
+            // directory hands out one lock per path), and disposing it would let the directory go.
+            WaitToTryAgain(waited, null);
+        }
+    }
+
+    /// <summary>Sleeps until the next try, or refuses with <c>503 ServerBusy</c> once <see cref="LockWait"/> has gone by.</summary>
+    private static void WaitToTryAgain(Stopwatch waited, Exception? refusal)
+    {
+        if (waited.Elapsed >= LockWait)
+            throw new RequestFailedException(503,
+                $"The directory is being written to by another process and did not become free within {LockWait.TotalSeconds:0} seconds. Try again.",
+                "ServerBusy", refusal);
+        // Uneven delays, so two waiting processes do not keep trying at the same instants.
+        Thread.Sleep(Random.Shared.Next(MinRetryDelayMs, MaxRetryDelayMs + 1));
     }
 }

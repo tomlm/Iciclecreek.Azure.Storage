@@ -15,5 +15,6 @@
     <ProjectReference Include="..\Libraries\Iciclecreek.Azure.Storage.Memory\Iciclecreek.Azure.Storage.Memory.csproj" />
     <ProjectReference Include="..\Libraries\Iciclecreek.Azure.Storage.FileSystem\Iciclecreek.Azure.Storage.FileSystem.csproj" />
     <ProjectReference Include="..\Libraries\Iciclecreek.Azure.Storage.SQLite\Iciclecreek.Azure.Storage.SQLite.csproj" />
+    <ProjectReference Include="..\Libraries\Iciclecreek.Azure.Storage.Lucene\Iciclecreek.Azure.Storage.Lucene.csproj" />
   </ItemGroup>
 </Project>

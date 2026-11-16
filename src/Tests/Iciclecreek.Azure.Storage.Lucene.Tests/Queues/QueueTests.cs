@@ -5,26 +5,36 @@ using Iciclecreek.Azure.Storage.Tests.Shared.Queues;
 
 namespace Iciclecreek.Azure.Storage.Lucene.Tests.Queues;
 
-// The queue behaviour every provider shares, against indexes in memory.
-public class QueueCrudTests : QueueCrudTestsBase
+// The queue behaviour every provider shares, in memory, with the queues kept as indexes and as files.
+[TestFixture(false)]
+[TestFixture(true)]
+public class QueueCrudTests(bool queuesAsFiles) : QueueCrudTestsBase
 {
-    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture();
+    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture(queuesAsFiles: queuesAsFiles);
 }
 
-public class QueueMessageTests : QueueMessageTestsBase
+[TestFixture(false)]
+[TestFixture(true)]
+public class QueueMessageTests(bool queuesAsFiles) : QueueMessageTestsBase
 {
-    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture();
+    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture(queuesAsFiles: queuesAsFiles);
 }
 
-public class QueueServiceClientTests : QueueServiceClientTestsBase
+[TestFixture(false)]
+[TestFixture(true)]
+public class QueueServiceClientTests(bool queuesAsFiles) : QueueServiceClientTestsBase
 {
-    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture();
+    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture(queuesAsFiles: queuesAsFiles);
 }
 
-/// <summary>The same message behaviour against indexes in a folder, and what only a folder can show.</summary>
-public class QueueMessageOnDiskTests : QueueMessageTestsBase
+/// <summary>The same message behaviour in a folder, and what only a folder can show.</summary>
+[TestFixture(false)]
+[TestFixture(true)]
+public class QueueMessageOnDiskTests(bool queuesAsFiles) : QueueMessageTestsBase
 {
-    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture(onDisk: true);
+    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture(onDisk: true, queuesAsFiles);
+
+    private LuceneStorageTestFixture Fixture => (LuceneStorageTestFixture)_fixture;
 
     [Test]
     public void Messages_Survive_Closing_And_Reopening_In_Order_With_Their_State()
@@ -32,9 +42,9 @@ public class QueueMessageOnDiskTests : QueueMessageTestsBase
         _client.SendMessage("first");
         _client.SendMessage("second");
         var taken = _client.ReceiveMessages(1, TimeSpan.FromSeconds(60)).Value.Single();
-        ((LuceneStorageTestFixture)_fixture).QueueService.Dispose();
+        Fixture.QueueService.Dispose();
 
-        using var reopened = new LuceneQueueServiceClient(_fixture.TempPath);
+        using var reopened = Fixture.OpenQueueService();
         var queue = reopened.GetQueueClient("msgq");
 
         Assert.That(queue.Exists().Value, Is.True);
@@ -51,7 +61,7 @@ public class QueueMessageOnDiskTests : QueueMessageTestsBase
     [Test]
     public void Two_Clients_On_One_Folder_Share_The_Queue_And_Its_Order()
     {
-        using var otherService = new LuceneQueueServiceClient(_fixture.TempPath);
+        using var otherService = Fixture.OpenQueueService();
         var other = otherService.GetQueueClient("msgq");
 
         _client.SendMessage("from the first");
@@ -69,7 +79,7 @@ public class QueueMessageOnDiskTests : QueueMessageTestsBase
     [Test]
     public void A_Second_Client_On_The_Folder_Gets_Its_Turn_While_The_First_Is_Busy()
     {
-        using var otherService = new LuceneQueueServiceClient(_fixture.TempPath);
+        using var otherService = Fixture.OpenQueueService();
         var other = otherService.GetQueueClient("msgq");
 
         // The first client never leaves the queue's index alone: four threads send without a pause.

@@ -3,6 +3,7 @@ using Azure.Data.Tables;
 using Iciclecreek.Azure.Storage.Lucene.Blobs;
 using Iciclecreek.Azure.Storage.Lucene.Queues;
 using Iciclecreek.Azure.Storage.Lucene.Tables;
+using Iciclecreek.Azure.Storage.Lucene.Tests.Infrastructure;
 
 namespace Iciclecreek.Azure.Storage.Lucene.Tests.Names;
 
@@ -11,9 +12,11 @@ namespace Iciclecreek.Azure.Storage.Lucene.Tests.Names;
 /// whatever the file system, different names must stay different things, the registry must not
 /// be reachable by name, and nothing may be written outside the folder the client was given.
 /// </summary>
-[TestFixture(false)]
-[TestFixture(true)]
-public class ResourceNameTests(bool onDisk)
+[TestFixture(false, false)]
+[TestFixture(true, false)]
+[TestFixture(false, true)]
+[TestFixture(true, true)]
+public class ResourceNameTests(bool onDisk, bool queuesAsFiles)
 {
     private string _outer = null!;
     private string _folder = null!;
@@ -29,7 +32,7 @@ public class ResourceNameTests(bool onDisk)
         _folder = Path.Combine(_outer, "inner", "storage");
         Directory.CreateDirectory(_folder);
         _tables = onDisk ? new LuceneTableServiceClient(_folder) : new LuceneTableServiceClient();
-        _queues = onDisk ? new LuceneQueueServiceClient(_folder) : new LuceneQueueServiceClient();
+        _queues = onDisk ? QueueServices.InFolder(_folder, queuesAsFiles) : QueueServices.InMemory(queuesAsFiles);
         _blobs = onDisk ? new LuceneBlobServiceClient(_folder) : new LuceneBlobServiceClient();
     }
 
