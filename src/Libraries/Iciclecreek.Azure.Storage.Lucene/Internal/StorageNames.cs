@@ -25,6 +25,10 @@ internal static class StorageNames
         "lpt0", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
     };
 
+    // The longest name a folder can have on NTFS, ext4 and APFS. A directory name is all ASCII, so
+    // it is as many bytes as characters, whichever of the two the file system counts.
+    private const int LongestFolderName = 255;
+
     /// <summary>
     /// The directory name for a name. Lowercase letters, digits and hyphens stand for themselves,
     /// so a name that follows the Azure rules for queues and containers is its own directory name.
@@ -32,7 +36,10 @@ internal static class StorageNames
     /// that different names always give different directory names, on any file system, and the
     /// result holds nothing a file system reads as a path.
     /// </summary>
-    /// <exception cref="RequestFailedException">400 InvalidResourceName: the name is empty or reserved.</exception>
+    /// <exception cref="RequestFailedException">
+    /// 400 InvalidResourceName: the name is empty or reserved, or its directory name would be
+    /// longer than a folder name can be.
+    /// </exception>
     public static string Directory(string name)
     {
         Check(name);
@@ -47,6 +54,11 @@ internal static class StorageNames
         }
 
         var directory = escaped.ToString();
+        // Refused here because the file system does not refuse it in a way a caller can read: the
+        // folder cannot be made, so the index's lock is never had, and the wait for it ends as a 503.
+        if (directory.Length > LongestFolderName)
+            throw new RequestFailedException(400, $"The resource name is too long: its directory name would be {directory.Length} characters, and a folder name can be {LongestFolderName}.", "InvalidResourceName", null);
+
         // A device name is told apart by writing its first letter as a code, which is done to no other letter.
         return s_deviceNames.Contains(directory) ? Code(directory[0]) + directory[1..] : directory;
     }

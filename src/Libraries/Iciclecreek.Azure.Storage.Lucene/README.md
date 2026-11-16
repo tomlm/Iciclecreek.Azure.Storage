@@ -107,7 +107,7 @@ A name made of lowercase letters, digits and hyphens is its own directory name. 
 - **Table names are not case sensitive,** as in Azure: `People` and `people` are one table, listed under the name it was created with, in the directory `people`.
 - **Queue and container names are case sensitive.** `Work` and `work` are two queues, on any file system.
 - **Any other character** is written in the directory name as `_` and its four-digit hexadecimal code: the queue `Work` is the directory `_0057ork`, and a name such as `../x` is the single directory `_002e_002e_002fx`. The Azure naming rules are not otherwise enforced.
-- **`__registry__` and the empty name are refused** with `400 InvalidResourceName`.
+- **`__registry__` and the empty name are refused** with `400 InvalidResourceName`. So is a name whose directory name would be longer than 255 characters, the most a folder name can be.
 
 ## Behaviour
 

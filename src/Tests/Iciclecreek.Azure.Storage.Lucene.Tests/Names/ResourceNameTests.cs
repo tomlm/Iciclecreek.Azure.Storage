@@ -119,6 +119,40 @@ public class ResourceNameTests(bool onDisk)
     }
 
     [Test]
+    public async Task A_Name_Too_Long_To_Be_A_Folder_Name_Is_Refused()
+    {
+        // A capital letter is five characters of a folder name, so 52 of them are 260, and a folder name may be 255.
+        var capitals = new string('Q', 52);
+        var letters = new string('q', 256);
+        foreach (var name in new[] { capitals, letters })
+        {
+            var refusals = new[]
+            {
+                Assert.Throws<RequestFailedException>(() => _queues.GetQueueClient(name).Create())!,
+                Assert.Throws<RequestFailedException>(() => _queues.GetQueueClient(name).CreateIfNotExists())!,
+                (await Assert.ThrowsAsync<RequestFailedException>(() => _blobs.GetBlobContainerClient(name).GetBlobClient("b").UploadAsync(BinaryData.FromString("x"), overwrite: true)))!,
+            };
+            Assert.That(refusals.Select(r => (r.Status, r.ErrorCode)), Has.All.EqualTo((400, "InvalidResourceName")), $"name of {name.Length} characters");
+        }
+        // A table's folder is its name in lower case, so only the length of the name counts.
+        var table = _tables.GetTableClient(new string('T', 256));
+        Assert.That(Assert.Throws<RequestFailedException>(() => table.Create())!.ErrorCode, Is.EqualTo("InvalidResourceName"));
+        Assert.That(Assert.Throws<RequestFailedException>(() => table.AddEntity(new TableEntity("p", "1")))!.ErrorCode, Is.EqualTo("InvalidResourceName"));
+        Assert.That(_tables.Query(), Is.Empty);
+        Assert.That(_queues.GetQueues(), Is.Empty);
+
+        // The longest names that fit are still good ones.
+        var longestTable = _tables.GetTableClient(new string('T', 255));
+        longestTable.Create();
+        longestTable.AddEntity(new TableEntity("p", "1"));
+        Assert.That(longestTable.Query<TableEntity>().Select(e => e.RowKey), Is.EqualTo(new[] { "1" }));
+        var longestQueue = _queues.GetQueueClient(new string('Q', 51));
+        longestQueue.Create();
+        longestQueue.SendMessage("fits");
+        Assert.That(longestQueue.PeekMessages(10).Value.Select(m => m.Body.ToString()), Is.EqualTo(new[] { "fits" }));
+    }
+
+    [Test]
     public async Task A_Name_That_Looks_Like_A_Path_Or_A_Device_Is_Kept_Inside_The_Folder()
     {
         string[] names = ["../../escaped", @"..\..\escaped", "/escaped", "a/b", "..", "nul", "con", "dots.and spaces "];
