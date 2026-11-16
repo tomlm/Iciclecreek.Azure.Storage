@@ -119,7 +119,10 @@ internal sealed class LuceneQueueStore : IDisposable
     // ── Queues ──────────────────────────────────────────────────────────
     //
     // A queue is there when the registry holds a file "{hash of its name}.{version}.queue". The
-    // file holds the name and the metadata; setting the metadata writes the next version.
+    // file holds the name and the metadata; setting the metadata writes the next version. A
+    // process that died making a queue leaves the file unfinished: by the file's name the queue is
+    // there, and takes messages, but its own name is not to be read, so it is not listed until
+    // CreateQueue or SetMetadata writes the file again.
 
     public bool QueueExists(string queueName) => RegistryFiles(DirectoryFor(Registry), HashOf(queueName)).Count > 0;
 
@@ -130,8 +133,23 @@ internal sealed class LuceneQueueStore : IDisposable
         return Locked(Registry, registry =>
         {
             var hash = HashOf(queueName);
-            if (RegistryFiles(registry, hash).Count > 0)
-                return false;
+            var files = RegistryFiles(registry, hash);
+            if (files.Count > 0)
+            {
+                // The registry is held, so nobody is writing these files: one that is there and not
+                // whole was left by a process that died writing it. If that is all there is, the
+                // queue was never finished being made, and nobody was told that it was made, so it
+                // is made here. Its file is written under the next version and the others are then
+                // removed, as when its metadata is set, so that there is no moment at which the
+                // queue is not there. Its messages are kept: QueueExists goes by the names of
+                // these files, so they were sent to a queue that was there.
+                if (files.Any(file => ReadQueue(registry, file.Name, out _) != Read.Broken))
+                    return false;
+                WriteQueue(registry, files[^1] with { Version = files[^1].Version + 1 }, queueName, metadata);
+                foreach (var file in files)
+                    Remove(registry, file.Name);
+                return true;
+            }
             // Nothing in the directory of a queue that does not exist can be live: it was sent while
             // the queue was being deleted, after the delete had emptied the directory and before it
             // took the queue off the list. It is emptied before the queue is listed, so the queue is
@@ -275,7 +293,7 @@ internal sealed class LuceneQueueStore : IDisposable
         }
     }
 
-    /// <summary>A queue's files in the registry, oldest version first. There is more than one only while its metadata is being set.</summary>
+    /// <summary>A queue's files in the registry, oldest version first. There is more than one only while its metadata is being set, or after a process died setting it.</summary>
     private static List<RegistryFile> RegistryFiles(LuceneDirectory registry, string hash)
     {
         var files = new List<RegistryFile>();

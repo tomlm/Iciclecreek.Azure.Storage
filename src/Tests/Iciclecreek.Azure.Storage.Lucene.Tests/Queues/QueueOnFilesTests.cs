@@ -203,6 +203,30 @@ public class QueueOnFilesTests
     }
 
     [Test]
+    public void A_Queue_Whose_Making_Was_Never_Finished_Is_Finished_By_The_Next_Create()
+    {
+        // As if the process making the queue had died writing its file in the registry.
+        var registry = Path.Combine(_folder, "queues", "__registry__");
+        var entry = Directory.GetFiles(registry, "*.queue").Single();
+        File.WriteAllBytes(entry, File.ReadAllBytes(entry)[..^6]);
+
+        // By the name of its file the queue is there, and takes messages; its own name, which it
+        // is listed by, is in the file.
+        Assert.That(_queue.Exists().Value, Is.True);
+        Assert.That(_service.GetQueues(), Is.Empty);
+        _queue.SendMessage("kept");
+
+        var metadata = new Dictionary<string, string> { ["owner"] = "tests" };
+        Assert.That(_queue.CreateIfNotExists(metadata).Status, Is.EqualTo(201), "the queue is made, not found already made");
+
+        Assert.That(_service.GetQueues().Select(q => q.Name), Is.EqualTo(new[] { "work" }));
+        Assert.That(_queue.GetProperties().Value.Metadata, Is.EqualTo(metadata));
+        Assert.That(Directory.GetFiles(registry, "*.queue"), Has.Length.EqualTo(1), "the unfinished file is removed");
+        Assert.That(_queue.PeekMessages(10).Value.Select(m => m.Body.ToString()), Is.EqualTo(new[] { "kept" }), "what was sent to it meanwhile is not lost");
+        Assert.That(Assert.Throws<RequestFailedException>(() => _queue.Create())!.ErrorCode, Is.EqualTo("QueueAlreadyExists"));
+    }
+
+    [Test]
     public void A_Message_Id_Or_Pop_Receipt_That_Is_Not_One_Names_No_File()
     {
         var sent = _queue.SendMessage("here").Value;
