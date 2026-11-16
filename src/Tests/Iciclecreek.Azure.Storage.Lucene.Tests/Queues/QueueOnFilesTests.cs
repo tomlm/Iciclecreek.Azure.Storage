@@ -153,6 +153,15 @@ public class QueueOnFilesTests
         // Two files that a sender died writing, both ahead of the whole message in line: one cut short, one empty.
         File.WriteAllBytes(Path.Combine(_messages, "0000000000000001" + name[16..]), File.ReadAllBytes(whole)[..^6]);
         File.WriteAllBytes(Path.Combine(_messages, "0000000000000002" + name[16..]), []);
+        // Two more that are as long as a whole file and are not one. Lucene reports these as a plain
+        // IOException, as it does a file that cannot be opened, where the two above end in an
+        // EndOfStreamException.
+        var bytes = File.ReadAllBytes(whole);
+        // All zeros: what a power loss before the sync can leave.
+        File.WriteAllBytes(Path.Combine(_messages, "0000000000000003" + name[16..]), new byte[bytes.Length]);
+        // One byte changed.
+        bytes[^10] ^= 1;
+        File.WriteAllBytes(Path.Combine(_messages, "0000000000000004" + name[16..]), bytes);
         // And a file that is nothing to do with the queue.
         File.WriteAllText(Path.Combine(_messages, "notes.txt"), "not a message");
 

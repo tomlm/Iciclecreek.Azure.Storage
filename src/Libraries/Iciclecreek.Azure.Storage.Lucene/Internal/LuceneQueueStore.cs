@@ -3,7 +3,6 @@ using System.Security.Cryptography;
 using System.Text;
 using Azure;
 using Lucene.Net.Codecs;
-using Lucene.Net.Index;
 using Lucene.Net.Store;
 using LuceneDirectory = Lucene.Net.Store.Directory;
 
@@ -749,7 +748,7 @@ internal sealed class LuceneQueueStore : IDisposable
     {
         /// <summary>The file was read and its checksum is right.</summary>
         Whole,
-        /// <summary>The file is there but was never finished, or is not one of this store's.</summary>
+        /// <summary>The file was opened and is not whole: it was never finished, has been damaged, or is not one of this store's.</summary>
         Broken,
         /// <summary>The file is gone, or cannot be opened just now.</summary>
         Unavailable,
@@ -757,22 +756,32 @@ internal sealed class LuceneQueueStore : IDisposable
 
     private static Read ReadFile(LuceneDirectory directory, string name, string codec, Action<ChecksumIndexInput> read)
     {
+        ChecksumIndexInput input;
         try
         {
-            using var input = directory.OpenChecksumInput(name, IOContext.READ_ONCE);
-            CodecUtil.CheckHeader(input, codec, FormatVersion, FormatVersion);
-            read(input);
-            CodecUtil.CheckFooter(input);
-            return Read.Whole;
-        }
-        catch (Exception ex) when (ex is CorruptIndexException or EndOfStreamException)
-        {
-            return Read.Broken;
+            input = directory.OpenChecksumInput(name, IOContext.READ_ONCE);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Removed since it was listed, or held for a moment by something else.
             return Read.Unavailable;
+        }
+        using (input)
+        {
+            try
+            {
+                CodecUtil.CheckHeader(input, codec, FormatVersion, FormatVersion);
+                read(input);
+                CodecUtil.CheckFooter(input);
+                return Read.Whole;
+            }
+            catch (IOException)
+            {
+                // Told from a file that could not be opened by where it is thrown, not by its type:
+                // Lucene reports a wrong header, footer or checksum as a plain IOException, and a
+                // file cut short as an EndOfStreamException, which is one.
+                return Read.Broken;
+            }
         }
     }
 
