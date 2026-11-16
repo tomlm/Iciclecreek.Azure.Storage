@@ -40,7 +40,9 @@ public class LuceneTableServiceClient : TableServiceClient, IDisposable
 
     /// <summary>
     /// Tables in the directories the factory gives. It is asked for <c>tables/{table}</c> for each
-    /// table and <c>tables/__registry__</c> for the list of tables; each is disposed with this client.
+    /// table and <c>tables/__registry__</c> for the list of tables. Each is asked for once, when it
+    /// is first needed, and the directory is disposed with this client; a client that is used again
+    /// after it has been disposed asks again.
     /// </summary>
     public LuceneTableServiceClient(Func<string, LuceneDirectory> directoryFactory) : base()
     {

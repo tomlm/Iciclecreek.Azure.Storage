@@ -52,7 +52,9 @@ internal sealed class LuceneQueueStore : IDisposable
     private const string MetadataField = "metadata";
 
     private readonly Func<string, LuceneDirectory> _directoryFactory;
-    private readonly ConcurrentDictionary<string, LuceneDirectory> _directories = new(StringComparer.Ordinal);
+    // Lazy, so that the factory is asked once for a path however many threads first want it together;
+    // a directory made twice would leave one of the two never disposed.
+    private readonly ConcurrentDictionary<string, Lazy<LuceneDirectory>> _directories = new(StringComparer.Ordinal);
 
     public LuceneQueueStore(Func<string, LuceneDirectory> directoryFactory) => _directoryFactory = directoryFactory;
 
@@ -62,7 +64,20 @@ internal sealed class LuceneQueueStore : IDisposable
     /// </summary>
     private static string QueuePath(string queueName) => "queues/" + StorageNames.Directory(queueName);
 
-    private LuceneDirectory DirectoryFor(string path) => _directories.GetOrAdd(path, _directoryFactory);
+    private LuceneDirectory DirectoryFor(string path)
+    {
+        var directory = _directories.GetOrAdd(path, p => new Lazy<LuceneDirectory>(() => _directoryFactory(p)));
+        try
+        {
+            return directory.Value;
+        }
+        catch
+        {
+            // A Lazy keeps a failure for good; forget it, so that the factory is asked again next time.
+            _directories.TryRemove(new KeyValuePair<string, Lazy<LuceneDirectory>>(path, directory));
+            throw;
+        }
+    }
 
     /// <summary>
     /// Changes an index and commits. One writer at a time: clients in this process take turns at
@@ -375,8 +390,8 @@ internal sealed class LuceneQueueStore : IDisposable
 
     public void Dispose()
     {
-        foreach (var directory in _directories.Values)
-            directory.Dispose();
+        foreach (var directory in _directories.Values.Where(directory => directory.IsValueCreated))
+            directory.Value.Dispose();
         _directories.Clear();
     }
 }

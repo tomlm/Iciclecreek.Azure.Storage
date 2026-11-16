@@ -24,7 +24,7 @@ namespace Iciclecreek.Azure.Storage.Lucene.Blobs;
 /// metadata, content bytes, checksum footer.
 /// </para>
 /// </summary>
-internal sealed class LuceneBlobStore
+internal sealed class LuceneBlobStore : IDisposable
 {
     private const string Codec = "LottaBlob";
     private const int Version = 0;
@@ -42,6 +42,13 @@ internal sealed class LuceneBlobStore
     }
 
     private LuceneDirectory Directory => _directory.Value;
+
+    /// <summary>Closes the directory, if the container was ever used.</summary>
+    public void Dispose()
+    {
+        if (_directory.IsValueCreated)
+            _directory.Value.Dispose();
+    }
 
     /// <summary>A blob's properties, as read from its file header.</summary>
     public sealed record Header(

@@ -263,7 +263,9 @@ internal sealed class LuceneTableRegistry : IDisposable
     private const string NameField = "name";
 
     private readonly Func<string, LuceneDirectory> _directoryFactory;
-    private readonly ConcurrentDictionary<string, LuceneDirectory> _directories = new(StringComparer.Ordinal);
+    // Lazy, so that the factory is asked once for a path however many threads first want it together;
+    // a directory made twice would leave one of the two never disposed.
+    private readonly ConcurrentDictionary<string, Lazy<LuceneDirectory>> _directories = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, TableStore> _stores = new(StringComparer.Ordinal);
     private readonly TableStore _registry;
 
@@ -273,7 +275,20 @@ internal sealed class LuceneTableRegistry : IDisposable
         _registry = new TableStore(DirectoryFor(RegistryPath));
     }
 
-    private LuceneDirectory DirectoryFor(string path) => _directories.GetOrAdd(path, _directoryFactory);
+    private LuceneDirectory DirectoryFor(string path)
+    {
+        var directory = _directories.GetOrAdd(path, p => new Lazy<LuceneDirectory>(() => _directoryFactory(p)));
+        try
+        {
+            return directory.Value;
+        }
+        catch
+        {
+            // A Lazy keeps a failure for good; forget it, so that the factory is asked again next time.
+            _directories.TryRemove(new KeyValuePair<string, Lazy<LuceneDirectory>>(path, directory));
+            throw;
+        }
+    }
 
     /// <summary>What a table is known by, however its name is capitalised. Refuses a name that is empty or reserved.</summary>
     private static string Key(string tableName) => StorageNames.Check(tableName).ToLowerInvariant();
@@ -345,8 +360,8 @@ internal sealed class LuceneTableRegistry : IDisposable
 
     public void Dispose()
     {
-        foreach (var directory in _directories.Values)
-            directory.Dispose();
+        foreach (var directory in _directories.Values.Where(directory => directory.IsValueCreated))
+            directory.Value.Dispose();
         _directories.Clear();
     }
 }

@@ -20,9 +20,10 @@ namespace Iciclecreek.Azure.Storage.Lucene.Blobs;
 /// name is a folder of its own inside <c>blobs</c> on any file system.
 /// </para>
 /// </summary>
-public sealed class LuceneBlobServiceClient : BlobServiceClient
+public sealed class LuceneBlobServiceClient : BlobServiceClient, IDisposable
 {
-    private readonly ConcurrentDictionary<string, LuceneBlobStore> _stores = new();
+    // Lazy, so that a container has one store, and so one directory, however many threads first ask for it together.
+    private readonly ConcurrentDictionary<string, Lazy<LuceneBlobStore>> _stores = new();
     private readonly Func<string, LuceneDirectory> _directoryFactory;
 
     /// <summary>Blobs in memory: gone when this client is.</summary>
@@ -35,7 +36,10 @@ public sealed class LuceneBlobServiceClient : BlobServiceClient
     {
     }
 
-    /// <summary>Blobs in the directories the factory gives; it is asked for <c>blobs/{container}</c>.</summary>
+    /// <summary>
+    /// Blobs in the directories the factory gives. It is asked for <c>blobs/{container}</c> when a
+    /// container is first used, once for each container, and the directory is disposed with this client.
+    /// </summary>
     public LuceneBlobServiceClient(Func<string, LuceneDirectory> directoryFactory) : base()
     {
         _directoryFactory = directoryFactory ?? throw new ArgumentNullException(nameof(directoryFactory));
@@ -58,7 +62,16 @@ public sealed class LuceneBlobServiceClient : BlobServiceClient
     // The container's name is made safe as a folder name, so that containers whose names differ only
     // by case stay apart on any file system and no name leads outside "blobs".
     internal LuceneBlobStore GetStore(string containerName)
-        => _stores.GetOrAdd(containerName, name => new LuceneBlobStore(() => _directoryFactory($"blobs/{StorageNames.Directory(name)}")));
+        => _stores.GetOrAdd(containerName, name => new Lazy<LuceneBlobStore>(
+            () => new LuceneBlobStore(() => _directoryFactory($"blobs/{StorageNames.Directory(name)}")))).Value;
+
+    /// <summary>Closes the directories the blobs are kept in.</summary>
+    public void Dispose()
+    {
+        foreach (var store in _stores.Values.Where(store => store.IsValueCreated))
+            store.Value.Dispose();
+        _stores.Clear();
+    }
 
     /// <inheritdoc/>
     public override string AccountName => "lucene";

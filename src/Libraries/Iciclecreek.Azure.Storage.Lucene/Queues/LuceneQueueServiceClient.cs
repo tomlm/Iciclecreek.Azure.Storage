@@ -37,8 +37,9 @@ public class LuceneQueueServiceClient : QueueServiceClient, IDisposable
 
     /// <summary>
     /// Queues in the directories the factory gives. It is asked for <c>queues/{queueName}</c> for
-    /// each queue and <c>queues/__registry__</c> for the list of queues; each name is asked for
-    /// once, and the directory is disposed with this client.
+    /// each queue and <c>queues/__registry__</c> for the list of queues. Each is asked for once,
+    /// when it is first needed, and the directory is disposed with this client; a client that is
+    /// used again after it has been disposed asks again.
     /// </summary>
     public LuceneQueueServiceClient(Func<string, LuceneDirectory> directoryFactory) : base()
     {
