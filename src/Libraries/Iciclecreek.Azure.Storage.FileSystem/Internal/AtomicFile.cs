@@ -1,9 +1,22 @@
+using System.Runtime.InteropServices;
+
 namespace Iciclecreek.Azure.Storage.FileSystem.Internal;
 
 internal static class AtomicFile
 {
     private const int MaxRetries = 50;
     private const int RetryDelayMs = 10;
+
+    private static readonly bool IsWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+
+    /// <summary>
+    /// The sharing that makes an open in <see cref="ReadModifyWriteAsync{T}"/> exclusive. On Windows
+    /// that is <see cref="FileShare.Delete"/>: it shuts out every other reader and writer and still
+    /// lets the holder delete the file while it is open. Elsewhere .NET takes an exclusive lock only
+    /// for <see cref="FileShare.None"/> (any other value is a shared lock, which a second caller is
+    /// given too), and an open file can be deleted whatever the sharing.
+    /// </summary>
+    private static readonly FileShare ExclusiveShare = IsWindows ? FileShare.Delete : FileShare.None;
 
     public static async Task WriteAllBytesAsync(string path, byte[] bytes, CancellationToken ct = default)
     {
@@ -85,7 +98,9 @@ internal static class AtomicFile
     /// <summary>
     /// Read a file, decide, and then keep, rewrite or delete it — all while holding the file
     /// exclusively, so two callers (threads or processes) can never both act on the same content.
-    /// Returns <paramref name="missing"/> when the file does not exist.
+    /// The hold is a share mode on Windows and an advisory lock elsewhere (see
+    /// <see cref="ExclusiveShare"/>), so it excludes other callers of this class and other .NET
+    /// code, not every program. Returns <paramref name="missing"/> when the file does not exist.
     /// </summary>
     /// <param name="decide">Given the file's text, says what to do with it and what to return.</param>
     public static async Task<T> ReadModifyWriteAsync<T>(
@@ -95,9 +110,14 @@ internal static class AtomicFile
         {
             try
             {
-                // FileShare.Delete lets this holder delete the file while it is open; nobody else can read or write it meanwhile.
-                using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Delete))
+                // The holder may delete the file while it is open; no other caller can read or write it meanwhile.
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, ExclusiveShare))
                 {
+                    // Off Windows the file is opened first and locked second, so the previous holder may have
+                    // deleted it in between: what is open then is a file that no longer has a name.
+                    if (!IsWindows && !File.Exists(path))
+                        return missing;
+
                     string text;
                     using (var reader = new StreamReader(fs, System.Text.Encoding.UTF8, true, 4096, leaveOpen: true))
                         text = await reader.ReadToEndAsync().ConfigureAwait(false);
