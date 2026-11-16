@@ -148,19 +148,30 @@ internal sealed class QueueStore
             ct.ThrowIfCancellationRequested();
 
             // Read, check and claim under one exclusive hold on the file, so no two receivers get the same message.
-            var claimed = await AtomicFile.ReadModifyWriteAsync<QueueMessageFile?>(file, json =>
+            QueueMessageFile? claimed;
+            try
             {
-                var now = DateTimeOffset.UtcNow;
-                var msg = Parse(json);
-                if (msg == null) return (AtomicFile.Change.Keep, "", null);
-                if (msg.ExpiresOn <= now) return (AtomicFile.Change.Delete, "", null);
-                if (msg.NextVisibleOn > now) return (AtomicFile.Change.Keep, "", null);
+                claimed = await AtomicFile.ReadModifyWriteAsync<QueueMessageFile?>(file, json =>
+                {
+                    var now = DateTimeOffset.UtcNow;
+                    var msg = Parse(json);
+                    if (msg == null) return (AtomicFile.Change.Keep, "", null);
+                    if (msg.ExpiresOn <= now) return (AtomicFile.Change.Delete, "", null);
+                    if (msg.NextVisibleOn > now) return (AtomicFile.Change.Keep, "", null);
 
-                msg.DequeueCount++;
-                msg.PopReceipt = Guid.NewGuid().ToString();
-                msg.NextVisibleOn = now + visibilityTimeout;
-                return (AtomicFile.Change.Write, JsonSerializer.Serialize(msg, Options.JsonSerializerOptions), msg);
-            }, null, ct).ConfigureAwait(false);
+                    msg.DequeueCount++;
+                    msg.PopReceipt = Guid.NewGuid().ToString();
+                    msg.NextVisibleOn = now + visibilityTimeout;
+                    return (AtomicFile.Change.Write, JsonSerializer.Serialize(msg, Options.JsonSerializerOptions), msg);
+                }, null, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                // Still held by someone else after every retry. Pass over it, as over a hidden message:
+                // throwing here would lose the messages already claimed for this batch, which are hidden
+                // on disk by now and would never reach the caller.
+                continue;
+            }
 
             if (claimed != null)
                 result.Add(claimed);
@@ -183,7 +194,10 @@ internal sealed class QueueStore
                 if (msg == null || msg.ExpiresOn <= now || msg.NextVisibleOn > now) continue;
                 result.Add(msg);
             }
-            catch (IOException) { /* deleted meanwhile, or held by a receiver that is claiming it */ }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                // Deleted meanwhile, or held by a receiver that is claiming it or (access denied, on Windows) deleting it.
+            }
         }
         return result;
     }

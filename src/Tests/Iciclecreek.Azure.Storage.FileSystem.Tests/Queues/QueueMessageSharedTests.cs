@@ -47,6 +47,24 @@ public class QueueMessageSharedTests : QueueMessageTestsBase
     }
 
     [Test]
+    public void A_Message_File_That_Stays_Held_Is_Passed_Over_And_The_Rest_Of_The_Batch_Is_Returned()
+    {
+        _client.SendMessage("free");
+        _client.SendMessage("held");
+        var held = Directory.EnumerateFiles(MessagesFolder).OrderBy(Path.GetFileName, StringComparer.Ordinal).Last();
+
+        // Another program keeps the second message's file open for longer than a receive retries.
+        using (new FileStream(held, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.That(_client.PeekMessages(10).Value.Select(m => m.Body.ToString()), Is.EqualTo(new[] { "free" }));
+            // "free" is claimed before the held file is reached; giving up on the held file must not lose it.
+            Assert.That(_client.ReceiveMessages(10, TimeSpan.FromSeconds(60)).Value.Select(m => m.Body.ToString()), Is.EqualTo(new[] { "free" }));
+        }
+
+        Assert.That(_client.ReceiveMessages(10, TimeSpan.FromSeconds(60)).Value.Select(m => m.Body.ToString()), Is.EqualTo(new[] { "held" }));
+    }
+
+    [Test]
     public void A_Message_Written_By_An_Earlier_Version_Is_Still_Delivered_And_Deleted()
     {
         // Earlier versions named a message file by a bare GUID.

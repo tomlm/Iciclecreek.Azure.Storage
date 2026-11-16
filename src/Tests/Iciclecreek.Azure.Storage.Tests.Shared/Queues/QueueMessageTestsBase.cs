@@ -460,4 +460,35 @@ public abstract class QueueMessageTestsBase
         Assert.That(taken, Has.Count.EqualTo(total), "every message was handed out exactly once");
         Assert.That(taken.Distinct().Count(), Is.EqualTo(total));
     }
+
+    [Test]
+    public async Task Concurrent_Receivers_That_Delete_What_They_Receive_Handle_Each_Message_Once()
+    {
+        const int total = 100;
+        for (var n = 0; n < total; n++)
+            _client.SendMessage($"d{n}");
+
+        // What a worker pool does: each message is deleted as soon as it is handled, so messages
+        // are disappearing while the other receivers are looking through the queue.
+        var handled = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var workers = Enumerable.Range(0, 8).Select(_ => Task.Run(async () =>
+        {
+            while (true)
+            {
+                var batch = (await _client.ReceiveMessagesAsync(3, TimeSpan.FromSeconds(120))).Value;
+                if (batch.Length == 0)
+                    return;
+                foreach (var message in batch)
+                {
+                    await _client.DeleteMessageAsync(message.MessageId, message.PopReceipt);
+                    handled.Add(message.MessageId);
+                }
+            }
+        }));
+        await Task.WhenAll(workers);
+
+        Assert.That(handled, Has.Count.EqualTo(total), "every message was received and deleted exactly once");
+        Assert.That(handled.Distinct().Count(), Is.EqualTo(total));
+        Assert.That((await _client.GetPropertiesAsync()).Value.ApproximateMessagesCount, Is.Zero);
+    }
 }

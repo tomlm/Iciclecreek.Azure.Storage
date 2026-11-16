@@ -149,9 +149,11 @@ internal static class AtomicFile
             {
                 return missing;
             }
-            catch (IOException) when (attempt < MaxRetries - 1)
+            catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < MaxRetries - 1)
             {
-                // Held by someone else; wait for them.
+                // Held by someone else; wait for them. On Windows a file that its holder has deleted but not
+                // yet closed refuses to open with access denied, not a sharing violation; by the next
+                // attempt it is gone and the caller gets `missing`.
                 await Task.Delay(RetryDelayMs, ct).ConfigureAwait(false);
             }
         }
