@@ -83,4 +83,27 @@ public class DirectoryFactoryTests
         // Disposing twice is harmless.
         Assert.DoesNotThrow(() => { tables.Dispose(); queues.Dispose(); blobs.Dispose(); });
     }
+
+    [Test]
+    public void After_Dispose_The_Queue_Client_Asks_Again_And_The_Table_Client_Cannot_Be_Used()
+    {
+        var tables = new LuceneTableServiceClient(Make);
+        using var queues = new LuceneQueueServiceClient(Make);
+        tables.GetTableClient("t").CreateIfNotExists();
+        queues.GetQueueClient("q").CreateIfNotExists();
+        tables.Dispose();
+        queues.Dispose();
+        string[] askedForBeforeDispose = ["tables/__registry__", "tables/t", "queues/__registry__", "queues/q"];
+        Assert.That(_made.Select(m => m.Path), Is.EquivalentTo(askedForBeforeDispose));
+
+        // The table client keeps the directories it was given, closed as they now are, and asks for no others.
+        Assert.Catch<ObjectDisposedException>(() => tables.GetTableClient("t").CreateIfNotExists());
+        Assert.Catch<ObjectDisposedException>(() => tables.Query().ToList());
+        Assert.That(_made.Select(m => m.Path), Is.EquivalentTo(askedForBeforeDispose));
+
+        // The queue client keeps none: it asks for each again and works on what it is then given.
+        queues.GetQueueClient("q").CreateIfNotExists();
+        Assert.That(queues.GetQueueClient("q").Exists().Value, Is.True);
+        Assert.That(_made.Select(m => m.Path), Is.EquivalentTo(askedForBeforeDispose.Concat(["queues/__registry__", "queues/q"])));
+    }
 }

@@ -39,10 +39,12 @@ public class LuceneTableServiceClient : TableServiceClient, IDisposable
     }
 
     /// <summary>
-    /// Tables in the directories the factory gives. It is asked for <c>tables/{table}</c> for each
-    /// table and <c>tables/__registry__</c> for the list of tables. Each is asked for once, when it
-    /// is first needed, and the directory is disposed with this client; a client that is used again
-    /// after it has been disposed asks again.
+    /// Tables in the directories the factory gives. It is asked for <c>tables/__registry__</c>, the
+    /// list of tables, when this client is made, and for <c>tables/{table}</c> when a table is first
+    /// used. Each is asked for once, and the directory is disposed with this client. Unlike the
+    /// queue client, a table client that has been disposed cannot be used again: it keeps the
+    /// directories it was given and does not ask for new ones, so what it is asked to do then
+    /// fails with <see cref="ObjectDisposedException"/>.
     /// </summary>
     public LuceneTableServiceClient(Func<string, LuceneDirectory> directoryFactory) : base()
     {
