@@ -22,7 +22,7 @@ Choose the backend that fits your scenario: in-memory for fast unit tests, files
 | Block blobs (Upload, Download, Stage, Commit) | ✅ | ✅ | ✅ | Upload and download only |
 | Append blobs (Create, Append) | ✅ | ✅ | ✅ | ❌ |
 | Page blobs (Create, UploadPages, ClearPages) | ✅ | ✅ | ✅ | ❌ |
-| Blob containers (CRUD, Listing, Hierarchy) | ✅ | ✅ | ✅ | ✅ |
+| Blob containers (CRUD, Listing, Hierarchy) | ✅ | ✅ | ✅ | Listing blobs, flat and by hierarchy; containers are not stored |
 | Blob metadata, HTTP headers, tags | ✅ | ✅ | ✅ | Metadata and content type only |
 | ETag concurrency (IfMatch / IfNoneMatch) | ✅ | ✅ | ✅ | IfMatch; IfNoneMatch on upload |
 | Blob leases and container leases | ✅ | ✅ | ✅ | ❌ |
@@ -36,6 +36,8 @@ Choose the backend that fits your scenario: in-memory for fast unit tests, files
 | Queue visibility timeout and TTL | ✅ | ✅ | ✅ | ✅ |
 
 The Lucene provider has the whole table and queue APIs. Its blob client covers upload, download (to memory or as a stream), delete, properties and listing.
+
+Lucene blob containers are not stored: a container is only the place its blobs are in. Every container exists, creating one always succeeds (twice in a row too), deleting one deletes its blobs, and `GetBlobContainers` throws `NotSupportedException`. So do the downloads the blob client does not have: `OpenRead`, `Download` and `DownloadTo` to a file path or with options. Other blob members outside the list above are not implemented.
 
 ## Quick Start
 

@@ -162,6 +162,52 @@ public class LuceneBlobTests(bool onDisk)
     }
 
     [Test]
+    public void A_Container_Is_Only_The_Place_Its_Blobs_Are_In()
+    {
+        // Containers are not kept anywhere, so one that was never created is there, and creating it again is not a conflict.
+        var never = _service.GetBlobContainerClient("never-created");
+
+        Assert.That(never.Exists().Value, Is.True);
+        Assert.That(never.Create().GetRawResponse().Status, Is.EqualTo(201));
+        Assert.That(never.Create().GetRawResponse().Status, Is.EqualTo(201));
+        // And so there is no list of them to give.
+        Assert.Throws<NotSupportedException>(() => _service.GetBlobContainers());
+        Assert.Throws<NotSupportedException>(() => _service.GetBlobContainersAsync());
+        Assert.Throws<NotSupportedException>(() => _service.GetBlobContainers(BlobContainerTraits.Metadata, prefix: "never"));
+    }
+
+    [Test]
+    public async Task Downloads_The_Client_Does_Not_Support_Say_So()
+    {
+        var blob = _container.GetBlobClient("x.txt");
+        await blob.UploadAsync(Text("x"), overwrite: true);
+        var path = Path.Combine(Path.GetTempPath(), "IciclecreekLuceneBlobs-" + Guid.NewGuid().ToString("N") + ".txt");
+
+        Assert.Multiple(() =>
+        {
+            Assert.Throws<NotSupportedException>(() => blob.OpenRead());
+            Assert.Throws<NotSupportedException>(() => blob.OpenRead(new BlobOpenReadOptions(allowModifications: false)));
+            Assert.That(() => blob.OpenReadAsync(), Throws.TypeOf<NotSupportedException>());
+            Assert.Throws<NotSupportedException>(() => blob.Download());
+            Assert.Throws<NotSupportedException>(() => blob.Download(CancellationToken.None));
+            Assert.Throws<NotSupportedException>(() => blob.Download(new HttpRange(0, 1)));
+            Assert.That(() => blob.DownloadAsync(), Throws.TypeOf<NotSupportedException>());
+            Assert.Throws<NotSupportedException>(() => blob.DownloadTo(path));
+            Assert.Throws<NotSupportedException>(() => blob.DownloadTo(path, CancellationToken.None));
+            Assert.Throws<NotSupportedException>(() => blob.DownloadTo(path, new BlobDownloadToOptions()));
+            Assert.Throws<NotSupportedException>(() => blob.DownloadTo(new MemoryStream(), new BlobDownloadToOptions()));
+            Assert.That(() => blob.DownloadToAsync(path), Throws.TypeOf<NotSupportedException>());
+        });
+        Assert.That(File.Exists(path), Is.False);
+
+        // The downloads it does support are beside them.
+        var copy = new MemoryStream();
+        blob.DownloadTo(copy);
+        Assert.That(Encoding.UTF8.GetString(copy.ToArray()), Is.EqualTo("x"));
+        Assert.That(blob.DownloadStreaming().Value.Details.ContentLength, Is.EqualTo(1));
+    }
+
+    [Test]
     public async Task Containers_Keep_Their_Blobs_Apart()
     {
         var other = _service.GetBlobContainerClient("other");

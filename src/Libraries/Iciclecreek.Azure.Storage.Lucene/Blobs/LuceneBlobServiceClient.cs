@@ -15,6 +15,11 @@ namespace Iciclecreek.Azure.Storage.Lucene.Blobs;
 /// properties and listing (flat or by hierarchy); it does not support block, append or page
 /// blob operations, leases, tags, snapshots or copies.
 /// <para>
+/// Containers are not kept anywhere: a container is only the place its blobs are in. So every
+/// container exists, creating one does nothing and always succeeds, deleting one deletes its
+/// blobs, and the containers cannot be listed.
+/// </para>
+/// <para>
 /// In the directory name, any character of the container's name other than a lowercase letter, a
 /// digit or a hyphen is written as <c>_</c> and its four-digit hexadecimal code, so that every
 /// name is a folder of its own inside <c>blobs</c> on any file system.
@@ -82,6 +87,26 @@ public sealed class LuceneBlobServiceClient : BlobServiceClient, IDisposable
     /// <inheritdoc/>
     public override BlobContainerClient GetBlobContainerClient(string blobContainerName)
         => new LuceneBlobContainerClient(this, blobContainerName);
+
+    // ---- Listing containers: not supported, since containers are not kept ----
+
+    private const string ContainersAreNotKept = "The Lucene-backed client does not keep a list of containers, so they cannot be listed.";
+
+    /// <inheritdoc/>
+    public override Pageable<BlobContainerItem> GetBlobContainers(BlobContainerTraits traits = default, BlobContainerStates states = default, string? prefix = default, CancellationToken cancellationToken = default)
+        => NotSupported.ThrowWithMessage<Pageable<BlobContainerItem>>(ContainersAreNotKept);
+
+    /// <inheritdoc/>
+    public override Pageable<BlobContainerItem> GetBlobContainers(BlobContainerTraits traits, string? prefix, CancellationToken cancellationToken = default)
+        => NotSupported.ThrowWithMessage<Pageable<BlobContainerItem>>(ContainersAreNotKept);
+
+    /// <inheritdoc/>
+    public override AsyncPageable<BlobContainerItem> GetBlobContainersAsync(BlobContainerTraits traits = default, BlobContainerStates states = default, string? prefix = default, CancellationToken cancellationToken = default)
+        => NotSupported.ThrowWithMessage<AsyncPageable<BlobContainerItem>>(ContainersAreNotKept);
+
+    /// <inheritdoc/>
+    public override AsyncPageable<BlobContainerItem> GetBlobContainersAsync(BlobContainerTraits traits, string? prefix, CancellationToken cancellationToken = default)
+        => NotSupported.ThrowWithMessage<AsyncPageable<BlobContainerItem>>(ContainersAreNotKept);
 }
 
 /// <summary>A container of <see cref="LuceneBlobServiceClient"/>. Containers always exist.</summary>
@@ -353,6 +378,28 @@ internal sealed class LuceneBlobClient : BlobClient
 
     public override Response DownloadTo(Stream destination, CancellationToken cancellationToken = default)
         => DownloadToAsync(destination, cancellationToken).GetAwaiter().GetResult();
+
+    // ---- Downloads that are not supported ----
+    // Left alone, these reach the base client, which has no connection and fails with a NullReferenceException.
+
+    public override Response DownloadTo(string path, CancellationToken cancellationToken = default) => NotSupported.Throw<Response>();
+    public override Task<Response> DownloadToAsync(string path, CancellationToken cancellationToken = default) => NotSupported.Throw<Task<Response>>();
+    public override Response DownloadTo(Stream destination, BlobDownloadToOptions options, CancellationToken cancellationToken = default) => NotSupported.Throw<Response>();
+    public override Task<Response> DownloadToAsync(Stream destination, BlobDownloadToOptions options, CancellationToken cancellationToken = default) => NotSupported.Throw<Task<Response>>();
+    public override Response DownloadTo(string path, BlobDownloadToOptions options, CancellationToken cancellationToken = default) => NotSupported.Throw<Response>();
+    public override Task<Response> DownloadToAsync(string path, BlobDownloadToOptions options, CancellationToken cancellationToken = default) => NotSupported.Throw<Task<Response>>();
+
+    public override Response<BlobDownloadInfo> Download() => NotSupported.Throw<Response<BlobDownloadInfo>>();
+    public override Response<BlobDownloadInfo> Download(CancellationToken cancellationToken) => NotSupported.Throw<Response<BlobDownloadInfo>>();
+    public override Response<BlobDownloadInfo> Download(HttpRange range, BlobRequestConditions? conditions = null, bool rangeGetContentHash = false, CancellationToken cancellationToken = default) => NotSupported.Throw<Response<BlobDownloadInfo>>();
+    public override Task<Response<BlobDownloadInfo>> DownloadAsync() => NotSupported.Throw<Task<Response<BlobDownloadInfo>>>();
+    public override Task<Response<BlobDownloadInfo>> DownloadAsync(CancellationToken cancellationToken) => NotSupported.Throw<Task<Response<BlobDownloadInfo>>>();
+    public override Task<Response<BlobDownloadInfo>> DownloadAsync(HttpRange range, BlobRequestConditions? conditions = null, bool rangeGetContentHash = false, CancellationToken cancellationToken = default) => NotSupported.Throw<Task<Response<BlobDownloadInfo>>>();
+
+    public override Stream OpenRead(long position = 0, int? bufferSize = null, BlobRequestConditions? conditions = null, CancellationToken cancellationToken = default) => NotSupported.Throw<Stream>();
+    public override Stream OpenRead(BlobOpenReadOptions options, CancellationToken cancellationToken = default) => NotSupported.Throw<Stream>();
+    public override Task<Stream> OpenReadAsync(long position = 0, int? bufferSize = null, BlobRequestConditions? conditions = null, CancellationToken cancellationToken = default) => NotSupported.Throw<Task<Stream>>();
+    public override Task<Stream> OpenReadAsync(BlobOpenReadOptions options, CancellationToken cancellationToken = default) => NotSupported.Throw<Task<Stream>>();
 
     // ---- Properties / Exists / Delete ----
 

@@ -38,7 +38,8 @@ public class ResourceNameTests(bool onDisk)
     {
         _tables.Dispose();
         _queues.Dispose();
-        try { Directory.Delete(_outer, recursive: true); } catch (IOException) { /* a blob directory may still hold its folder; the temp folder is cleaned by the system */ }
+        _blobs.Dispose();
+        Directory.Delete(_outer, recursive: true);
     }
 
     [Test]

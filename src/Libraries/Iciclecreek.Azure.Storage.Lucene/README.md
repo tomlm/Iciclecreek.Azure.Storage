@@ -122,7 +122,9 @@ A name made of lowercase letters, digits and hyphens is its own directory name. 
 
 - **One directory per container,** with a file per blob.
 - **Supported:** upload (with overwrite, If-Match or If-None-Match), download to memory or as a stream, delete, exists, properties with content type and metadata, and listing flat or by hierarchy. Download and delete honour If-Match.
-- **Not supported:** block, append and page blob operations, leases, tags, snapshots and copies.
+- **Containers are not stored.** A container is only the place its blobs are in: every container exists, creating one always succeeds, and deleting one deletes its blobs. There is no list of containers, so `GetBlobContainers` throws `NotSupportedException`.
+- **Not supported:** block, append and page blob operations, leases, tags, snapshots and copies. `OpenRead`, `Download` and `DownloadTo` to a file path or with options throw `NotSupportedException`; use `DownloadContent`, `DownloadStreaming` or `DownloadTo(Stream)`.
+- **Dispose the service client** to close the directories it opened, as with the table and queue service clients.
 
 ### Queues
 
