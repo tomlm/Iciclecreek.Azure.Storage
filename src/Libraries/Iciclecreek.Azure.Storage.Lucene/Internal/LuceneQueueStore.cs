@@ -165,16 +165,35 @@ internal sealed class LuceneQueueStore : IDisposable
     public IDictionary<string, string>? GetMetadata(string queueName)
     {
         var registry = DirectoryFor(Registry);
-        var files = RegistryFiles(registry, HashOf(queueName));
-        if (files.Count == 0)
-            return null;
-        // The newest that is whole: a newer one may be half written by whoever is setting the metadata now.
-        for (var i = files.Count - 1; i >= 0; i--)
+        var hash = HashOf(queueName);
+        List<RegistryFile>? before = null;
+        while (true)
         {
-            if (ReadQueue(registry, files[i].Name) is { } queue)
-                return queue.Value;
+            var files = RegistryFiles(registry, hash);
+            if (files.Count == 0)
+                return null;
+            // The newest that is whole: a newer one may be half written by whoever is setting the metadata now.
+            var someGone = false;
+            for (var i = files.Count - 1; i >= 0; i--)
+            {
+                switch (ReadQueue(registry, files[i].Name, out var queue))
+                {
+                    case Read.Whole:
+                        return queue.Value;
+                    case Read.Unavailable:
+                        someGone = true;
+                        break;
+                }
+            }
+            // None is whole. The files were listed without the lock, so one that has gone was
+            // replaced by whoever set the metadata since, and the queue is listed again, as it is
+            // by a receive. If nothing has gone, the queue is still being made, or was never
+            // finished being made, and has no metadata yet; and if the listing is what it was
+            // the time before, nothing was replaced: a file is there and cannot be opened.
+            if (!someGone || (before is not null && files.SequenceEqual(before)))
+                return new Dictionary<string, string>();
+            before = files;
         }
-        return new Dictionary<string, string>();
     }
 
     /// <summary>Replaces the queue's metadata; false when there is no such queue.</summary>
@@ -196,23 +215,45 @@ internal sealed class LuceneQueueStore : IDisposable
     public List<KeyValuePair<string, IDictionary<string, string>>> ListQueues()
     {
         var registry = DirectoryFor(Registry);
-        var queues = new List<KeyValuePair<string, IDictionary<string, string>>>();
-        // By queue, newest first; the first of each queue that is whole is the queue.
-        var files = ListFiles(registry)
-            .Select(name => RegistryFile.TryParse(name, out var file) ? file : (RegistryFile?)null)
-            .OfType<RegistryFile>()
-            .OrderBy(file => file.Hash, StringComparer.Ordinal)
-            .ThenByDescending(file => file.Version);
-        string? listed = null;
-        foreach (var file in files)
+        RegistryFile[]? before = null;
+        while (true)
         {
-            if (file.Hash == listed || ReadQueue(registry, file.Name) is not { } queue)
-                continue;
-            listed = file.Hash;
-            queues.Add(queue);
+            var queues = new List<KeyValuePair<string, IDictionary<string, string>>>();
+            // By queue, newest first; the first of each queue that is whole is the queue.
+            var files = ListFiles(registry)
+                .Select(name => RegistryFile.TryParse(name, out var file) ? file : (RegistryFile?)null)
+                .OfType<RegistryFile>()
+                .OrderBy(file => file.Hash, StringComparer.Ordinal)
+                .ThenByDescending(file => file.Version)
+                .ToArray();
+            string? listed = null;
+            var someGone = false;
+            foreach (var file in files)
+            {
+                if (file.Hash == listed)
+                    continue;
+                switch (ReadQueue(registry, file.Name, out var queue))
+                {
+                    case Read.Whole:
+                        listed = file.Hash;
+                        queues.Add(queue);
+                        break;
+                    case Read.Unavailable:
+                        someGone = true;
+                        break;
+                }
+            }
+            // The registry was listed without the lock. A file that has gone since was replaced by
+            // whoever set its queue's metadata, and that queue would be left out: the registry is
+            // listed again, unless the listing is what it was the time before, when nothing was
+            // replaced and a file is there that cannot be opened.
+            if (!someGone || (before is not null && files.SequenceEqual(before)))
+            {
+                queues.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
+                return queues;
+            }
+            before = files;
         }
-        queues.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
-        return queues;
     }
 
     /// <summary>The name of a queue's file in the registry, without its extension.</summary>
@@ -261,11 +302,13 @@ internal sealed class LuceneQueueStore : IDisposable
             output.WriteStringStringMap(metadata ?? new Dictionary<string, string>());
         });
 
-    /// <summary>The queue a registry file is for, or null when the file is not whole or cannot be read now.</summary>
-    private static KeyValuePair<string, IDictionary<string, string>>? ReadQueue(LuceneDirectory registry, string fileName)
+    /// <summary>Reads the queue a registry file is for; <paramref name="queue"/> is only that when the file is whole.</summary>
+    private static Read ReadQueue(LuceneDirectory registry, string fileName, out KeyValuePair<string, IDictionary<string, string>> queue)
     {
-        KeyValuePair<string, IDictionary<string, string>> queue = default;
-        return ReadFile(registry, fileName, QueueCodec, input => queue = new(input.ReadString(), input.ReadStringStringMap())) == Read.Whole ? queue : null;
+        KeyValuePair<string, IDictionary<string, string>> read = default;
+        var outcome = ReadFile(registry, fileName, QueueCodec, input => read = new(input.ReadString(), input.ReadStringStringMap()));
+        queue = read;
+        return outcome;
     }
 
     // ── Messages ────────────────────────────────────────────────────────

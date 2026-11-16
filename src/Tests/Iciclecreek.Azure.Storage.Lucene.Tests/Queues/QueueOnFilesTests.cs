@@ -174,6 +174,35 @@ public class QueueOnFilesTests
     }
 
     [Test]
+    public void A_Queue_Read_While_Its_Metadata_Is_Set_Is_Still_Found_With_Its_Metadata()
+    {
+        // Two clients on the same Lucene Directory objects. The first one's listing of the registry is followed,
+        // before it gets any further, by the second one setting the queue's metadata, which
+        // replaces the file that was listed.
+        var directories = new ConcurrentDictionary<string, LuceneDirectory>();
+        LuceneDirectory Shared(string path) => directories.GetOrAdd(path, _ => new RAMDirectory());
+        Action afterListing = () => { };
+        using var second = new LuceneQueueServiceClient(Shared);
+        using var first = new LuceneQueueServiceClient(path => path == "queues/__registry__" ? new ListedDirectory(Shared(path), () => afterListing()) : Shared(path));
+        var queue = first.GetQueueClient("work");
+        var others = second.GetQueueClient("work");
+        queue.Create(new Dictionary<string, string> { ["owner"] = "a" });
+        void SetWhenNextListed(string owner) => afterListing = () =>
+        {
+            afterListing = () => { };
+            others.SetMetadata(new Dictionary<string, string> { ["owner"] = owner });
+        };
+
+        SetWhenNextListed("b");
+        Assert.That(queue.GetProperties().Value.Metadata, Is.EqualTo(new Dictionary<string, string> { ["owner"] = "b" }));
+
+        SetWhenNextListed("c");
+        var found = first.GetQueues().Single();
+        Assert.That(found.Name, Is.EqualTo("work"));
+        Assert.That(found.Metadata, Is.EqualTo(new Dictionary<string, string> { ["owner"] = "c" }));
+    }
+
+    [Test]
     public void A_Message_Id_Or_Pop_Receipt_That_Is_Not_One_Names_No_File()
     {
         var sent = _queue.SendMessage("here").Value;
