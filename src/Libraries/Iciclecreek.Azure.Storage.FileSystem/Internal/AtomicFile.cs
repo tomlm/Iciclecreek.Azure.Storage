@@ -79,7 +79,9 @@ internal static class AtomicFile
             fs.SetLength(0);
             fs.Seek(0, SeekOrigin.Begin);
             await using var writer = new StreamWriter(fs, System.Text.Encoding.UTF8, 4096, leaveOpen: true);
-            await writer.WriteAsync(newText.AsMemory(), ct).ConfigureAwait(false);
+            // Not cancellable: the file is empty at this point, so stopping here would
+            // destroy the content rather than leave it unchanged.
+            await writer.WriteAsync(newText.AsMemory(), CancellationToken.None).ConfigureAwait(false);
             await writer.FlushAsync().ConfigureAwait(false);
         }, ct).ConfigureAwait(false);
     }
