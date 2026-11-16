@@ -101,8 +101,8 @@ public class LuceneQueueClient : QueueClient
     /// <inheritdoc/>
     public override Response SetMetadata(IDictionary<string, string>? metadata, CancellationToken cancellationToken = default)
     {
-        EnsureQueueExists();
-        Store.SetMetadata(_queueName, metadata);
+        if (!Store.SetMetadata(_queueName, metadata))
+            throw NotFound();
         return StubResponse.NoContent();
     }
 
@@ -271,5 +271,5 @@ public class LuceneQueueClient : QueueClient
             throw NotFound();
     }
 
-    private static RequestFailedException NotFound() => new(404, "Queue not found.", "QueueNotFound", null);
+    private static RequestFailedException NotFound() => LuceneQueueStore.QueueNotFound();
 }

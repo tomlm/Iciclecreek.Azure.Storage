@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Azure;
 using Lucene.Net.Documents;
 using Lucene.Net.Index;
 using Lucene.Net.Search;
@@ -108,6 +109,10 @@ internal sealed class LuceneQueueStore : IDisposable
             using var reader = DirectoryReader.Open(writer, true);
             if (new IndexSearcher(reader).Search(new TermQuery(new Term(NameField, queueName)), 1).TotalHits > 0)
                 return false;
+            // Nothing in the index of a queue that does not exist can be live: it was sent while the
+            // queue was being deleted, or left by a delete that never finished. It is emptied before
+            // the queue is listed, so the queue is empty by the time anyone can find it.
+            Write(QueuePath(queueName), Empty);
             writer.AddDocument(RegistryDocument(queueName, metadata));
             return true;
         });
@@ -139,9 +144,15 @@ internal sealed class LuceneQueueStore : IDisposable
             return ParseMetadata(searcher.Doc(hits.ScoreDocs[0].Doc).Get(MetadataField));
         });
 
-    public void SetMetadata(string queueName, IDictionary<string, string>? metadata) =>
+    /// <summary>Replaces the queue's metadata; false when there is no such queue.</summary>
+    public bool SetMetadata(string queueName, IDictionary<string, string>? metadata) =>
         Write(Registry, writer =>
         {
+            // Looked for here, with the registry held: writing the entry of a queue that has just
+            // been deleted would list the queue again.
+            using var reader = DirectoryReader.Open(writer, true);
+            if (new IndexSearcher(reader).Search(new TermQuery(new Term(NameField, queueName)), 1).TotalHits == 0)
+                return false;
             writer.UpdateDocument(new Term(NameField, queueName), RegistryDocument(queueName, metadata));
             return true;
         });
@@ -175,9 +186,34 @@ internal sealed class LuceneQueueStore : IDisposable
 
     public int Count(string queueName) => Read(QueuePath(queueName), searcher => searcher?.IndexReader.NumDocs ?? 0);
 
+    internal static RequestFailedException QueueNotFound() => new(404, "Queue not found.", "QueueNotFound", null);
+
+    /// <summary>
+    /// Called with the queue's index held, before anything is written to it. A caller may have
+    /// found the queue and then waited for the index while the queue was deleted; what it wrote
+    /// then would be in the index of a queue that is not there, and would turn up in the queue
+    /// when it is made again.
+    /// </summary>
+    private void RequireQueue(string queueName)
+    {
+        if (!QueueExists(queueName))
+            throw QueueNotFound();
+    }
+
+    /// <summary>Removes every message. The place in line is kept: a message sent afterwards still sorts after everything before it.</summary>
+    private static bool Empty(IndexWriter writer)
+    {
+        var commitData = writer.CommitData;
+        writer.DeleteAll();
+        if (commitData != null)
+            writer.SetCommitData(new Dictionary<string, string>(commitData));
+        return true;
+    }
+
     public StoredMessage Enqueue(string queueName, string text, TimeSpan? visibilityTimeout, TimeSpan? timeToLive) =>
         Write(QueuePath(queueName), writer =>
         {
+            RequireQueue(queueName);
             var now = DateTimeOffset.UtcNow;
             // The place in line is kept with the index itself, so it only ever goes up, whichever process sends.
             var last = writer.CommitData != null && writer.CommitData.TryGetValue(SequenceKey, out var saved) && long.TryParse(saved, out var parsed) ? parsed : 0;
@@ -211,6 +247,7 @@ internal sealed class LuceneQueueStore : IDisposable
 
         return Write(QueuePath(queueName), writer =>
         {
+            RequireQueue(queueName);
             var now = DateTimeOffset.UtcNow;
             writer.DeleteDocuments(NumericRangeQuery.NewInt64Range(ExpiresField, null, now.UtcTicks, true, true));
 
@@ -292,12 +329,8 @@ internal sealed class LuceneQueueStore : IDisposable
     public void Clear(string queueName) =>
         Write(QueuePath(queueName), writer =>
         {
-            // The place in line is kept: a message sent after a clear still sorts after everything before it.
-            var commitData = writer.CommitData;
-            writer.DeleteAll();
-            if (commitData != null)
-                writer.SetCommitData(new Dictionary<string, string>(commitData));
-            return true;
+            RequireQueue(queueName);
+            return Empty(writer);
         });
 
     private static StoredMessage? Find(IndexWriter writer, string messageId)

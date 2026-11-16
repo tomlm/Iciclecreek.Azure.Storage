@@ -77,8 +77,7 @@ public class LuceneTableClient : TableClient
     /// <inheritdoc/>
     public override async Task<Response> AddEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
     {
-        var table = GetTableStore();
-        using var change = table.Enter();
+        using var change = EnterTable(out var table);
         var key = TableStore.EntityKey(entity.PartitionKey, entity.RowKey);
         var entry = new EntityEntry
         {
@@ -132,8 +131,7 @@ public class LuceneTableClient : TableClient
     /// <inheritdoc/>
     public override async Task<Response> UpsertEntityAsync<T>(T entity, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
     {
-        var table = GetTableStore();
-        using var change = table.Enter();
+        using var change = EnterTable(out var table);
         var key = TableStore.EntityKey(entity.PartitionKey, entity.RowKey);
         string resultETag = null!;
 
@@ -192,8 +190,7 @@ public class LuceneTableClient : TableClient
     /// <inheritdoc/>
     public override async Task<Response> UpdateEntityAsync<T>(T entity, ETag ifMatch, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
     {
-        var table = GetTableStore();
-        using var change = table.Enter();
+        using var change = EnterTable(out var table);
         var key = TableStore.EntityKey(entity.PartitionKey, entity.RowKey);
 
         if (!table.Entities.TryGetValue(key, out var entry))
@@ -232,8 +229,7 @@ public class LuceneTableClient : TableClient
     public override async Task<Response> DeleteEntityAsync(string partitionKey, string rowKey, ETag ifMatch = default, CancellationToken cancellationToken = default)
     {
         var etag = ifMatch == default ? ETag.All : ifMatch;
-        var table = GetTableStore();
-        using var change = table.Enter();
+        using var change = EnterTable(out var table);
         var key = TableStore.EntityKey(partitionKey, rowKey);
 
         if (!table.Entities.TryGetValue(key, out var entry))
@@ -317,8 +313,7 @@ public class LuceneTableClient : TableClient
                 throw new RequestFailedException(400, "All entities in a transaction must have the same PartitionKey.", "InvalidInput", null);
         }
 
-        var table = GetTableStore();
-        using var change = table.Enter();
+        using var change = EnterTable(out var table);
 
         // Snapshot the state of all affected entities so we can rollback on failure.
         var snapshots = new Dictionary<string, EntityEntry?>();
@@ -523,6 +518,29 @@ public class LuceneTableClient : TableClient
         if (!_serviceClient.Tables.TryGetValue(_tableName, out var table))
             throw new RequestFailedException(404, "Table not found.", "TableNotFound", null);
         return table;
+    }
+
+    /// <summary>
+    /// Starts a change to the table. The table is looked for again once its lock is held: this
+    /// caller may have found it and then waited while it was deleted, and what it wrote then
+    /// would be in the index of a table that is not there, and would turn up in the table when it
+    /// is made again.
+    /// </summary>
+    private IDisposable EnterTable(out TableStore table)
+    {
+        // Looked for before as well, so that asking after a table that does not exist does not make an index for it.
+        table = GetTableStore();
+        var change = table.Enter();
+        try
+        {
+            GetTableStore();
+        }
+        catch
+        {
+            change.Dispose();
+            throw;
+        }
+        return change;
     }
 
     private List<TableEntity> LoadAllEntities()

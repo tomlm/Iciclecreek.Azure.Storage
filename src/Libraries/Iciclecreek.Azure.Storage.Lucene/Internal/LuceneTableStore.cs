@@ -299,6 +299,10 @@ internal sealed class LuceneTableRegistry : IDisposable
         using var change = _registry.Enter();
         if (Exists(tableName))
             return false;
+        // Nothing in the index of a table that does not exist can be live: it was left by a delete
+        // that never finished. It is emptied before the table is listed, so the table is empty by
+        // the time anyone can find it.
+        store.Entities.Clear();
         _registry.Writer.AddDocument(new Document
         {
             new StringField(KeyField, Key(tableName), Field.Store.YES),
