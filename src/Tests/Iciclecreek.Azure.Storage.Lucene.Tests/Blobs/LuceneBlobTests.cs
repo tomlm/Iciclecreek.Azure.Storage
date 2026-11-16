@@ -146,6 +146,22 @@ public class LuceneBlobTests(bool onDisk)
     }
 
     [Test]
+    public void A_Container_Nothing_Has_Been_Uploaded_To_Lists_Empty_And_Can_Be_Deleted()
+    {
+        // On disk the container's folder is only made by its first upload.
+        var empty = _service.GetBlobContainerClient("empty");
+        empty.CreateIfNotExists();
+
+        Assert.That(empty.GetBlobs(), Is.Empty);
+        Assert.That(empty.GetBlobsByHierarchy(new GetBlobsByHierarchyOptions { Delimiter = "/" }), Is.Empty);
+        Assert.That(empty.DeleteIfExists().Value, Is.False);
+        Assert.DoesNotThrow(() => empty.Delete());
+
+        _service.CreateBlobContainer("made");
+        Assert.DoesNotThrow(() => _service.DeleteBlobContainer("made"));
+    }
+
+    [Test]
     public async Task Containers_Keep_Their_Blobs_Apart()
     {
         var other = _service.GetBlobContainerClient("other");

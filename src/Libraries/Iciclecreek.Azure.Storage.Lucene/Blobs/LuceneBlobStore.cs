@@ -173,7 +173,7 @@ internal sealed class LuceneBlobStore
     public bool DeleteAll()
     {
         var any = false;
-        foreach (var file in Directory.ListAll().Where(f => f.EndsWith(Extension, StringComparison.Ordinal)))
+        foreach (var file in ListFiles().Where(f => f.EndsWith(Extension, StringComparison.Ordinal)))
         {
             TryDelete(file);
             any = true;
@@ -182,10 +182,26 @@ internal sealed class LuceneBlobStore
     }
 
     private IEnumerable<string> ListHashes()
-        => Directory.ListAll()
+        => ListFiles()
             .Where(f => f.EndsWith(Extension, StringComparison.Ordinal))
             .Select(f => f[..f.IndexOf('.')])
             .Distinct(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Every file in the directory. A directory in a folder is only made by its first upload, so
+    /// until then the container is there but its folder is not: that is an empty container.
+    /// </summary>
+    private string[] ListFiles()
+    {
+        try
+        {
+            return Directory.ListAll();
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return [];
+        }
+    }
 
     /// <summary>
     /// The live slot of a blob: the valid slot, or — if a crash left both valid — the newer one.
