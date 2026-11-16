@@ -78,6 +78,7 @@ services.AddSingleton<BlobServiceClient>(
 |---------|-------------|
 | [Iciclecreek.Azure.Storage.FileSystem](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.FileSystem) | Filesystem-backed implementation (files on disk) |
 | [Iciclecreek.Azure.Storage.SQLite](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.SQLite) | SQLite-backed implementation (single .db file) |
+| [Iciclecreek.Azure.Storage.Lucene](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.Lucene) | Lucene.NET-backed implementation (a directory per table, container and queue) |
 | [Iciclecreek.Azure.Storage.Server](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.Server) | ASP.NET Core REST API server on top of any provider |
 
 ## License

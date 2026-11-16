@@ -3,7 +3,7 @@
 
 **Drop-in replacements** for Azure Storage SDK clients. Use the same `BlobContainerClient`, `TableClient`, and `QueueClient` types in tests and local development without Azurite or a live Azure account.
 
-Choose the backend that fits your scenario: in-memory for fast unit tests, filesystem for inspectable persistent state, SQLite for single-file portable storage, or the REST server for integration testing.
+Choose the backend that fits your scenario: in-memory for fast unit tests, filesystem for inspectable persistent state, SQLite for single-file portable storage, Lucene.NET for storage that lives in Lucene directories beside a search index, or the REST server for integration testing.
 
 ## Packages
 
@@ -17,23 +17,25 @@ Choose the backend that fits your scenario: in-memory for fast unit tests, files
 
 ## Supported Features
 
-| Area | Memory | FileSystem | SQLite |
-|------|:------:|:----------:|:------:|
-| Block blobs (Upload, Download, Stage, Commit) | ✅ | ✅ | ✅ |
-| Append blobs (Create, Append) | ✅ | ✅ | ✅ |
-| Page blobs (Create, UploadPages, ClearPages) | ✅ | ✅ | ✅ |
-| Blob containers (CRUD, Listing, Hierarchy) | ✅ | ✅ | ✅ |
-| Blob metadata, HTTP headers, tags | ✅ | ✅ | ✅ |
-| ETag concurrency (IfMatch / IfNoneMatch) | ✅ | ✅ | ✅ |
-| Blob leases and container leases | ✅ | ✅ | ✅ |
-| Blob copy (StartCopyFromUri, SyncCopyFromUri) | ✅ | ✅ | ✅ |
-| Blob OpenRead / OpenWrite streaming | ✅ | ✅ | ✅ |
-| Blob snapshots and versions | ✅ | ✅ | ✅ |
-| Tables (CRUD, Upsert, Merge, Replace) | ✅ | ✅ | ✅ |
-| Table OData queries and LINQ expressions | ✅ | ✅ | ✅ |
-| Table transactions with rollback | ✅ | ✅ | ✅ |
-| Queues (CRUD, Send, Receive, Peek, Delete) | ✅ | ✅ | ✅ |
-| Queue visibility timeout and TTL | ✅ | ✅ | ✅ |
+| Area | Memory | FileSystem | SQLite | Lucene |
+|------|:------:|:----------:|:------:|:------:|
+| Block blobs (Upload, Download, Stage, Commit) | ✅ | ✅ | ✅ | Upload and download only |
+| Append blobs (Create, Append) | ✅ | ✅ | ✅ | ❌ |
+| Page blobs (Create, UploadPages, ClearPages) | ✅ | ✅ | ✅ | ❌ |
+| Blob containers (CRUD, Listing, Hierarchy) | ✅ | ✅ | ✅ | ✅ |
+| Blob metadata, HTTP headers, tags | ✅ | ✅ | ✅ | Metadata and content type only |
+| ETag concurrency (IfMatch / IfNoneMatch) | ✅ | ✅ | ✅ | IfMatch; IfNoneMatch on upload |
+| Blob leases and container leases | ✅ | ✅ | ✅ | ❌ |
+| Blob copy (StartCopyFromUri, SyncCopyFromUri) | ✅ | ✅ | ✅ | ❌ |
+| Blob OpenRead / OpenWrite streaming | ✅ | ✅ | ✅ | ❌ |
+| Blob snapshots and versions | ✅ | ✅ | ✅ | ❌ |
+| Tables (CRUD, Upsert, Merge, Replace) | ✅ | ✅ | ✅ | ✅ |
+| Table OData queries and LINQ expressions | ✅ | ✅ | ✅ | ✅ |
+| Table transactions with rollback | ✅ | ✅ | ✅ | ✅ |
+| Queues (CRUD, Send, Receive, Peek, Delete) | ✅ | ✅ | ✅ | ✅ |
+| Queue visibility timeout and TTL | ✅ | ✅ | ✅ | ✅ |
+
+The Lucene provider has the whole table and queue APIs. Its blob client covers upload, download (to memory or as a stream), delete, properties and listing.
 
 ## Quick Start
 
@@ -49,6 +51,10 @@ var tableService = new FileTableServiceClient(@"C:\temp\my-storage");
 // SQLite -- stores everything in a single .db file
 var blobService = new SqliteBlobServiceClient(@"C:\temp\storage.db");
 var tableService = new SqliteTableServiceClient(@"C:\temp\storage.db");
+
+// Lucene -- a Lucene directory per table, container and queue
+var blobService = new LuceneBlobServiceClient(@"C:\temp\my-storage");
+var tableService = new LuceneTableServiceClient(@"C:\temp\my-storage");
 
 // Then use standard Azure SDK types
 BlobContainerClient container = blobService.GetBlobContainerClient("my-container");
