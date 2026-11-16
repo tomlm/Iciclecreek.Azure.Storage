@@ -6,7 +6,8 @@ using Iciclecreek.Azure.Storage.Lucene.Internal;
 namespace Iciclecreek.Azure.Storage.Lucene.Queues;
 
 /// <summary>
-/// Drop-in replacement for <see cref="QueueClient"/> over a queue kept in a Lucene index.
+/// Drop-in replacement for <see cref="QueueClient"/> over a queue kept as files in a Lucene
+/// <c>Directory</c> (<c>Lucene.Net.Store.Directory</c>).
 /// Messages come out first in, first out; receiving one hides it from every other receiver, in
 /// this process or another, until its visibility timeout runs out.
 /// </summary>

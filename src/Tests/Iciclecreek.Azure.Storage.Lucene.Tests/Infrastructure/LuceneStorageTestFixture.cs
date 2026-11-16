@@ -9,7 +9,7 @@ using Iciclecreek.Azure.Storage.Tests.Shared.Infrastructure;
 namespace Iciclecreek.Azure.Storage.Lucene.Tests.Infrastructure;
 
 /// <summary>
-/// Queues and tables kept in Lucene indexes, in memory or in a temporary folder. The Lucene blob
+/// Queues and tables kept through Lucene, in memory or in a temporary folder. The Lucene blob
 /// client supports only part of the blob API and has tests of its own, so the shared blob
 /// factories are not available.
 /// </summary>
@@ -17,7 +17,7 @@ public sealed class LuceneStorageTestFixture : StorageTestFixture
 {
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "IciclecreekLuceneQueues-" + Guid.NewGuid().ToString("N"));
 
-    /// <param name="onDisk">True to keep the indexes in a folder, as a real deployment would.</param>
+    /// <param name="onDisk">True to keep the queues and tables in a folder, as a real deployment would.</param>
     public LuceneStorageTestFixture(bool onDisk = false)
     {
         QueueService = onDisk ? new LuceneQueueServiceClient(_folder) : new LuceneQueueServiceClient();

@@ -132,7 +132,7 @@ public class TableOnDiskTests
         queue.Create();
         queue.SendMessage("waiting");
 
-        // What another process writing to one of these indexes looks like from here: its write lock is
+        // What another process writing to the table or the queue looks like from here: its write lock is
         // taken, through a directory object that is not the client's own. A new one each time: a
         // Lucene lock that has been released cannot be relied on to hold again.
         IDisposable LockIndex(string kind)
@@ -158,10 +158,10 @@ public class TableOnDiskTests
             var adding = Task.Run(() => Assert.Throws<RequestFailedException>(() => table.AddEntity(new TableEntity("p", "never"))));
             var receiving = Task.Run(() => Assert.Throws<RequestFailedException>(() => queue.ReceiveMessages(1)));
             foreach (var refused in new[] { adding.Result!, receiving.Result! })
-            {
                 Assert.That((refused.Status, refused.ErrorCode), Is.EqualTo((503, "ServerBusy")));
-                Assert.That(refused.InnerException, Is.InstanceOf<LockObtainFailedException>());
-            }
+            // A table is refused by its index writer, and says so. A queue has no index writer: it asks for the lock itself.
+            Assert.That(adding.Result!.InnerException, Is.InstanceOf<LockObtainFailedException>());
+            Assert.That(receiving.Result!.InnerException, Is.Null);
         }
 
         // Nothing was half done, and both are usable again once the lock is free.

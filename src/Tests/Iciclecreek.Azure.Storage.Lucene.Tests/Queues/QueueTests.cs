@@ -5,7 +5,7 @@ using Iciclecreek.Azure.Storage.Tests.Shared.Queues;
 
 namespace Iciclecreek.Azure.Storage.Lucene.Tests.Queues;
 
-// The queue behaviour every provider shares, against indexes in memory.
+// The queue behaviour every provider shares, against Lucene Directory objects in memory.
 public class QueueCrudTests : QueueCrudTestsBase
 {
     protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture();
@@ -21,7 +21,7 @@ public class QueueServiceClientTests : QueueServiceClientTestsBase
     protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture();
 }
 
-/// <summary>The same message behaviour against indexes in a folder, and what only a folder can show.</summary>
+/// <summary>The same message behaviour against a Lucene <c>Directory</c> in a folder, and what only a folder can show.</summary>
 public class QueueMessageOnDiskTests : QueueMessageTestsBase
 {
     protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture(onDisk: true);
@@ -72,7 +72,7 @@ public class QueueMessageOnDiskTests : QueueMessageTestsBase
         using var otherService = new LuceneQueueServiceClient(_fixture.TempPath);
         var other = otherService.GetQueueClient("msgq");
 
-        // The first client never leaves the queue's index alone: four threads send without a pause.
+        // The first client never leaves the queue alone: four threads send without a pause.
         using var stop = new CancellationTokenSource();
         var sent = 0;
         var busy = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>

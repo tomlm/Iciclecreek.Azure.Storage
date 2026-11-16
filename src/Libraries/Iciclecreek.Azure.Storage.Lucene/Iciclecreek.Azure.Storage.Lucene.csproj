@@ -11,7 +11,7 @@
   <PropertyGroup>
     <Version>2.1.0</Version>
     <AssemblyVersion>2.1.0.0</AssemblyVersion>
-    <Description>Drop-in replacements for the Azure.Data.Tables, Azure.Storage.Blobs and Azure.Storage.Queues SDK clients that keep their data in Lucene.NET directories: each table, container and queue is a directory of its own.</Description>
+    <Description>Drop-in replacements for the Azure.Data.Tables, Azure.Storage.Blobs and Azure.Storage.Queues SDK clients that keep their data through the Lucene.NET Directory abstraction: each table, container and queue is a Lucene Directory of its own.</Description>
     <Company>Iciclecreek</Company>
     <Authors>Tom Laird-McConnell</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

@@ -1,6 +1,5 @@
 using Azure;
 using Azure.Data.Tables;
-using Iciclecreek.Azure.Storage.Lucene.Queues;
 using Iciclecreek.Azure.Storage.Lucene.Tables;
 using FilterDirectory = Lucene.Net.Store.FilterDirectory;
 using FSDirectory = Lucene.Net.Store.FSDirectory;
@@ -14,9 +13,10 @@ using LuceneVersion = Lucene.Net.Util.LuceneVersion;
 namespace Iciclecreek.Azure.Storage.Lucene.Tests.Concurrency;
 
 /// <summary>
-/// A table or queue that is deleted and made again starts empty, whatever was written to it while
-/// it was being deleted. And a delete takes only what it was asked to delete: a table or queue
-/// made again while the delete runs keeps what is then written to it.
+/// A table that is deleted and made again starts empty, whatever was written to it while it was
+/// being deleted. And a delete takes only what it was asked to delete: a table made again while
+/// the delete runs keeps what is then written to it. <see cref="QueueDeleteRaceTests"/> has the
+/// same for queues.
 /// </summary>
 public class DeleteRaceTests
 {
@@ -49,123 +49,31 @@ public class DeleteRaceTests
     }
 
     [Test]
-    public void A_Message_Sent_While_Its_Queue_Is_Deleted_Is_Not_There_When_The_Queue_Is_Made_Again()
-    {
-        using var service = new LuceneQueueServiceClient();
-        var queue = service.GetQueueClient("raced");
-
-        for (var round = 0; round < Rounds; round++)
-        {
-            queue.Create();
-            var sending = Task.Run(() =>
-            {
-                for (var n = 0; n < 5; n++)
-                {
-                    try { queue.SendMessage($"{n}"); }
-                    catch (RequestFailedException gone) when (gone.Status == 404) { /* the delete got there first */ }
-                }
-            });
-            var deleting = Task.Run(() => queue.Delete());
-            Task.WaitAll(sending, deleting);
-
-            queue.Create();
-            Assert.That(queue.GetProperties().Value.ApproximateMessagesCount, Is.Zero, $"round {round}");
-            queue.Delete();
-        }
-    }
-
-    [Test]
-    public void Setting_Metadata_While_The_Queue_Is_Deleted_Does_Not_Bring_The_Queue_Back()
-    {
-        using var service = new LuceneQueueServiceClient();
-        var queue = service.GetQueueClient("raced");
-
-        for (var round = 0; round < Rounds; round++)
-        {
-            queue.Create();
-            var setting = Task.Run(() =>
-            {
-                for (var n = 0; n < 5; n++)
-                {
-                    try { queue.SetMetadata(new Dictionary<string, string> { ["n"] = $"{n}" }); }
-                    catch (RequestFailedException gone) when (gone.Status == 404) { /* the delete got there first */ }
-                }
-            });
-            var deleting = Task.Run(() => queue.Delete());
-            Task.WaitAll(setting, deleting);
-
-            Assert.That(queue.Exists().Value, Is.False, $"round {round}");
-        }
-    }
-
-    [Test]
-    public void Making_A_Table_Or_Queue_Clears_What_Was_Left_In_Its_Index_After_It_Was_Deleted()
+    public void Making_A_Table_Clears_What_Was_Left_In_Its_Index_After_It_Was_Deleted()
     {
         var folder = Path.Combine(Path.GetTempPath(), "IciclecreekLuceneRaces-" + Guid.NewGuid().ToString("N"));
         try
         {
             using var tables = new LuceneTableServiceClient(folder);
-            using var queues = new LuceneQueueServiceClient(folder);
             var table = tables.GetTableClient("halfgone");
-            var queue = queues.GetQueueClient("halfgone");
             table.Create();
             table.AddEntity(new TableEntity("p", "left behind"));
-            queue.Create();
-            queue.SendMessage("left behind");
 
             // A delete empties the index and then takes the name off the list, so a write that gets
             // in between the two is left in the index of something that is no longer listed. Here
-            // that is arrived at directly: the lists are emptied, behind the clients' backs, and
+            // that is arrived at directly: the list is emptied, behind the client's back, and
             // nothing else.
-            foreach (var kind in new[] { "tables", "queues" })
+            using (var registry = FSDirectory.Open(Path.Combine(folder, "tables", "__registry__")))
+            using (var writer = new IndexWriter(registry, new IndexWriterConfig(LuceneVersion.LUCENE_48, new KeywordAnalyzer())))
             {
-                using var registry = FSDirectory.Open(Path.Combine(folder, kind, "__registry__"));
-                using var writer = new IndexWriter(registry, new IndexWriterConfig(LuceneVersion.LUCENE_48, new KeywordAnalyzer()));
                 writer.DeleteAll();
                 writer.Commit();
             }
             Assert.That(Assert.Throws<RequestFailedException>(() => table.GetEntity<TableEntity>("p", "left behind"))!.Status, Is.EqualTo(404));
-            Assert.That(queue.Exists().Value, Is.False);
 
             table.Create();
-            queue.Create();
 
             Assert.That(table.Query<TableEntity>(), Is.Empty);
-            Assert.That(queue.GetProperties().Value.ApproximateMessagesCount, Is.Zero);
-            Assert.That(queue.ReceiveMessages(10).Value, Is.Empty);
-        }
-        finally
-        {
-            if (Directory.Exists(folder))
-                Directory.Delete(folder, recursive: true);
-        }
-    }
-
-    [Test]
-    public void A_Queue_Made_Again_While_It_Is_Being_Deleted_Keeps_What_Is_Sent_To_It()
-    {
-        var folder = Path.Combine(Path.GetTempPath(), "IciclecreekLuceneRaces-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            var deleter = new AnotherProcess(folder);
-            var maker = new AnotherProcess(folder);
-            using var deletersQueues = new LuceneQueueServiceClient(deleter.Open);
-            using var makersQueues = new LuceneQueueServiceClient(maker.Open);
-            var doomed = deletersQueues.GetQueueClient("remade");
-            var remade = makersQueues.GetQueueClient("remade");
-            remade.Create();
-            remade.SendMessage("old");
-
-            DeleteWhileItIsMadeAgain(deleter, maker, "queues",
-                delete: () => doomed.Delete(),
-                makeAgain: () =>
-                {
-                    remade.Create();
-                    remade.SendMessage("new");
-                });
-
-            Assert.That(remade.Exists().Value, Is.True);
-            Assert.That(remade.PeekMessages(10).Value.Select(m => m.Body.ToString()), Is.EqualTo(new[] { "new" }));
         }
         finally
         {
@@ -213,7 +121,7 @@ public class DeleteRaceTests
     /// index, which is where it waits whenever another writer has that index, and is let go once
     /// the other process has either done its work or been kept out by the delete.
     /// </summary>
-    private static void DeleteWhileItIsMadeAgain(AnotherProcess deleter, AnotherProcess maker, string kind, Action delete, Action makeAgain)
+    internal static void DeleteWhileItIsMadeAgain(AnotherProcess deleter, AnotherProcess maker, string kind, Action delete, Action makeAgain)
     {
         using var deleteIsAtTheIndex = new ManualResetEventSlim();
         using var letTheDeleteGo = new ManualResetEventSlim();
@@ -254,7 +162,7 @@ public class DeleteRaceTests
     /// plain folder directory has write gates of its own, so its client shares none with any other
     /// client and meets them only at Lucene's write lock, as a second process does.
     /// </summary>
-    private sealed class AnotherProcess(string folder)
+    internal sealed class AnotherProcess(string folder)
     {
         /// <summary>Called with a directory's path each time the write lock of its index is asked for.</summary>
         public Action<string>? AsksForWriteLock { get; set; }

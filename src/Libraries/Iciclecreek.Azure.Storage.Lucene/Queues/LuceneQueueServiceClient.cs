@@ -9,9 +9,11 @@ using LuceneDirectory = Lucene.Net.Store.Directory;
 namespace Iciclecreek.Azure.Storage.Lucene.Queues;
 
 /// <summary>
-/// Drop-in replacement for <see cref="QueueServiceClient"/> that keeps queues in Lucene indexes:
-/// one index per queue, with a document per message. The indexes live wherever the directory
-/// factory puts them: in memory, in a folder, or in any other Lucene <c>Directory</c>.
+/// Drop-in replacement for <see cref="QueueServiceClient"/> that keeps each queue in a Lucene
+/// <see cref="LuceneDirectory">Directory</see> of its own, with a file per message and no index.
+/// A queue uses only what the Lucene <c>Directory</c> abstraction gives, so it lives wherever the
+/// directory factory puts it: in memory (<see cref="RAMDirectory"/>), in a folder
+/// (<see cref="FSDirectory"/>), or in any other Lucene <c>Directory</c>.
 /// <para>
 /// In the directory name, any character of the queue's name other than a lowercase letter, a
 /// digit or a hyphen is written as <c>_</c> and its four-digit hexadecimal code, so that every
@@ -36,10 +38,11 @@ public class LuceneQueueServiceClient : QueueServiceClient, IDisposable
     }
 
     /// <summary>
-    /// Queues in the directories the factory gives. It is asked for <c>queues/{queueName}</c> for
-    /// each queue and <c>queues/__registry__</c> for the list of queues. Each is asked for once,
-    /// when it is first needed, and the directory is disposed with this client; a client that is
-    /// used again after it has been disposed asks again.
+    /// Queues in the Lucene <c>Directory</c> objects the factory gives. It is asked for
+    /// <c>queues/{queueName}</c> for each queue and <c>queues/__registry__</c> for the list of
+    /// queues. Each is asked for once, when it is first needed, and the Lucene <c>Directory</c>
+    /// is disposed with this client; a client that is used again after it has been disposed asks
+    /// again.
     /// </summary>
     public LuceneQueueServiceClient(Func<string, LuceneDirectory> directoryFactory) : base()
     {
