@@ -25,7 +25,7 @@ public class LuceneQueueServiceClient : QueueServiceClient, IDisposable
 {
     private readonly Uri _queueServiceUri = new("lucene://queue/");
 
-    internal IQueueStore Store { get; }
+    internal LuceneQueueStore Store { get; }
 
     /// <summary>Queues in memory: gone when this client is.</summary>
     public LuceneQueueServiceClient() : this(InMemory())
@@ -41,31 +41,21 @@ public class LuceneQueueServiceClient : QueueServiceClient, IDisposable
     /// Queues in the Lucene <c>Directory</c> objects the factory gives. It is asked for
     /// <c>queues/{queueName}</c> for each queue and <c>queues/__registry__</c> for the list of
     /// queues. Each is asked for once, when it is first needed, and the Lucene <c>Directory</c>
-    /// is disposed with this client; a client that is
-    /// used again after it has been disposed asks again.
+    /// is disposed with this client; a client that is used again after it has been disposed asks
+    /// again.
     /// </summary>
-    public LuceneQueueServiceClient(Func<string, LuceneDirectory> directoryFactory) : this(directoryFactory, QueueStorage.Files)
+    public LuceneQueueServiceClient(Func<string, LuceneDirectory> directoryFactory) : base()
     {
+        Store = new LuceneQueueStore(directoryFactory ?? throw new ArgumentNullException(nameof(directoryFactory)));
     }
 
-    /// <summary>
-    /// Queues in the directories the factory gives, kept as <paramref name="storage"/> says. The
-    /// public constructors keep them as files; keeping them as indexes is here to be tested and
-    /// measured against that, and is not public.
-    /// </summary>
-    internal LuceneQueueServiceClient(Func<string, LuceneDirectory> directoryFactory, QueueStorage storage) : base()
-    {
-        ArgumentNullException.ThrowIfNull(directoryFactory);
-        Store = storage == QueueStorage.Files ? new DirectoryQueueStore(directoryFactory) : new LuceneQueueStore(directoryFactory);
-    }
-
-    internal static Func<string, LuceneDirectory> InMemory()
+    private static Func<string, LuceneDirectory> InMemory()
     {
         var directories = new ConcurrentDictionary<string, LuceneDirectory>(StringComparer.Ordinal);
         return path => directories.GetOrAdd(path, _ => new RAMDirectory());
     }
 
-    internal static Func<string, LuceneDirectory> InFolder(string rootPath)
+    private static Func<string, LuceneDirectory> InFolder(string rootPath)
     {
         if (string.IsNullOrWhiteSpace(rootPath))
             throw new ArgumentException("A folder is needed.", nameof(rootPath));

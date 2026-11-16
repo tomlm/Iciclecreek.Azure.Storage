@@ -48,12 +48,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- For choosing how queues are kept (QueueStorage): as files, which is what the public constructors give, or as indexes. -->
-    <InternalsVisibleTo Include="Iciclecreek.Azure.Storage.Lucene.Tests" />
-    <InternalsVisibleTo Include="BenchmarkSuite" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Using Include="Iciclecreek.Azure.Storage.Internal" />
     <Using Include="Iciclecreek.Azure.Storage.OData" />
   </ItemGroup>

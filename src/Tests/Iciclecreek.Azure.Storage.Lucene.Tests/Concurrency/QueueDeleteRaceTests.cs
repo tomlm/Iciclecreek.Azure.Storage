@@ -1,29 +1,21 @@
 using Azure;
-using Iciclecreek.Azure.Storage.Lucene.Tests.Infrastructure;
-using FSDirectory = Lucene.Net.Store.FSDirectory;
-using IndexWriter = Lucene.Net.Index.IndexWriter;
-using IndexWriterConfig = Lucene.Net.Index.IndexWriterConfig;
-using KeywordAnalyzer = Lucene.Net.Analysis.Core.KeywordAnalyzer;
-using LuceneVersion = Lucene.Net.Util.LuceneVersion;
+using Iciclecreek.Azure.Storage.Lucene.Queues;
 
 namespace Iciclecreek.Azure.Storage.Lucene.Tests.Concurrency;
 
 /// <summary>
 /// A queue that is deleted and made again starts empty, whatever was sent to it while it was
 /// being deleted. And a delete takes only what it was asked to delete: a queue made again while
-/// the delete runs keeps what is then sent to it. The same whether the queues are kept as indexes
-/// or as files.
+/// the delete runs keeps what is then sent to it.
 /// </summary>
-[TestFixture(false)]
-[TestFixture(true)]
-public class QueueDeleteRaceTests(bool queuesAsFiles)
+public class QueueDeleteRaceTests
 {
     private const int Rounds = 300;
 
     [Test]
     public void A_Message_Sent_While_Its_Queue_Is_Deleted_Is_Not_There_When_The_Queue_Is_Made_Again()
     {
-        using var service = QueueServices.InMemory(queuesAsFiles);
+        using var service = new LuceneQueueServiceClient();
         var queue = service.GetQueueClient("raced");
 
         for (var round = 0; round < Rounds; round++)
@@ -49,7 +41,7 @@ public class QueueDeleteRaceTests(bool queuesAsFiles)
     [Test]
     public void Setting_Metadata_While_The_Queue_Is_Deleted_Does_Not_Bring_The_Queue_Back()
     {
-        using var service = QueueServices.InMemory(queuesAsFiles);
+        using var service = new LuceneQueueServiceClient();
         var queue = service.GetQueueClient("raced");
 
         for (var round = 0; round < Rounds; round++)
@@ -76,7 +68,7 @@ public class QueueDeleteRaceTests(bool queuesAsFiles)
         var folder = Path.Combine(Path.GetTempPath(), "IciclecreekLuceneRaces-" + Guid.NewGuid().ToString("N"));
         try
         {
-            using var queues = QueueServices.InFolder(folder, queuesAsFiles);
+            using var queues = new LuceneQueueServiceClient(folder);
             var queue = queues.GetQueueClient("halfgone");
             queue.Create();
             queue.SendMessage("left behind");
@@ -85,19 +77,8 @@ public class QueueDeleteRaceTests(bool queuesAsFiles)
             // message sent in between the two is left in the directory of a queue that is no longer
             // listed. Here that is arrived at directly: the list is emptied, behind the client's
             // back, and nothing else.
-            var registry = Path.Combine(folder, "queues", "__registry__");
-            if (queuesAsFiles)
-            {
-                foreach (var listed in Directory.GetFiles(registry, "*.queue"))
-                    File.Delete(listed);
-            }
-            else
-            {
-                using var index = FSDirectory.Open(registry);
-                using var writer = new IndexWriter(index, new IndexWriterConfig(LuceneVersion.LUCENE_48, new KeywordAnalyzer()));
-                writer.DeleteAll();
-                writer.Commit();
-            }
+            foreach (var listed in Directory.GetFiles(Path.Combine(folder, "queues", "__registry__"), "*.queue"))
+                File.Delete(listed);
             Assert.That(queue.Exists().Value, Is.False);
 
             queue.Create();
@@ -120,8 +101,8 @@ public class QueueDeleteRaceTests(bool queuesAsFiles)
         {
             var deleter = new DeleteRaceTests.AnotherProcess(folder);
             var maker = new DeleteRaceTests.AnotherProcess(folder);
-            using var deletersQueues = QueueServices.On(deleter.Open, queuesAsFiles);
-            using var makersQueues = QueueServices.On(maker.Open, queuesAsFiles);
+            using var deletersQueues = new LuceneQueueServiceClient(deleter.Open);
+            using var makersQueues = new LuceneQueueServiceClient(maker.Open);
             var doomed = deletersQueues.GetQueueClient("remade");
             var remade = makersQueues.GetQueueClient("remade");
             remade.Create();

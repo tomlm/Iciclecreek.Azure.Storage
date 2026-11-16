@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using Azure;
 using Azure.Storage.Queues;
 using Iciclecreek.Azure.Storage.Lucene.Queues;
-using Iciclecreek.Azure.Storage.Lucene.Tests.Infrastructure;
 using FilterDirectory = Lucene.Net.Store.FilterDirectory;
 using LuceneDirectory = Lucene.Net.Store.Directory;
 using RAMDirectory = Lucene.Net.Store.RAMDirectory;
@@ -10,7 +9,7 @@ using RAMDirectory = Lucene.Net.Store.RAMDirectory;
 namespace Iciclecreek.Azure.Storage.Lucene.Tests.Queues;
 
 /// <summary>
-/// What is particular to queues kept as files: a message is a file whose name is its state, so a
+/// How a queue is kept in its Lucene <c>Directory</c>: a message is a file whose name is its state, so a
 /// writer that dies part way leaves files behind, and what a caller hands in as a message id and
 /// pop receipt is the name of a file.
 /// </summary>
@@ -26,7 +25,7 @@ public class QueueOnFilesTests
     {
         _folder = Path.Combine(Path.GetTempPath(), "IciclecreekLuceneQueueFiles-" + Guid.NewGuid().ToString("N"));
         _messages = Path.Combine(_folder, "queues", "work");
-        _service = QueueServices.InFolder(_folder, asFiles: true);
+        _service = new LuceneQueueServiceClient(_folder);
         _queue = _service.GetQueueClient("work");
         _queue.Create();
     }
@@ -114,8 +113,8 @@ public class QueueOnFilesTests
         var directories = new ConcurrentDictionary<string, LuceneDirectory>();
         LuceneDirectory Shared(string path) => directories.GetOrAdd(path, _ => new RAMDirectory());
         Action afterListing = () => { };
-        using var second = QueueServices.On(Shared, asFiles: true);
-        using var first = QueueServices.On(path => path == "queues/work" ? new ListedDirectory(Shared(path), () => afterListing()) : Shared(path), asFiles: true);
+        using var second = new LuceneQueueServiceClient(Shared);
+        using var first = new LuceneQueueServiceClient(path => path == "queues/work" ? new ListedDirectory(Shared(path), () => afterListing()) : Shared(path));
         var queue = first.GetQueueClient("work");
         var others = second.GetQueueClient("work");
         queue.Create();
@@ -143,21 +142,6 @@ public class QueueOnFilesTests
             listed();
             return files;
         }
-    }
-
-    [Test]
-    public void The_Public_Constructors_Keep_A_Queue_As_Files()
-    {
-        var folder = Path.Combine(_folder, "public");
-        using (var service = new LuceneQueueServiceClient(folder))
-        {
-            var queue = service.GetQueueClient("work");
-            queue.Create();
-            queue.SendMessage("a");
-        }
-
-        Assert.That(Directory.GetFiles(Path.Combine(folder, "queues", "work"), "*.msg"), Has.Length.EqualTo(1));
-        Assert.That(Directory.GetFiles(Path.Combine(folder, "queues", "__registry__"), "*.queue"), Has.Length.EqualTo(1));
     }
 
     [Test]
@@ -213,11 +197,9 @@ public class QueueOnFilesTests
 
 /// <summary>
 /// Two clients on one folder, sending, receiving, deleting and peeking all at once: every message
-/// sent is received once, and nobody is refused. With the queues kept as indexes and as files.
+/// sent is received once, and nobody is refused.
 /// </summary>
-[TestFixture(false)]
-[TestFixture(true)]
-public class QueueUnderLoadTests(bool queuesAsFiles)
+public class QueueUnderLoadTests
 {
     [Test]
     public void Every_Message_Sent_Is_Received_Once_While_Others_Send_Receive_And_Peek()
@@ -226,8 +208,8 @@ public class QueueUnderLoadTests(bool queuesAsFiles)
         var folder = Path.Combine(Path.GetTempPath(), "IciclecreekLuceneLoad-" + Guid.NewGuid().ToString("N"));
         try
         {
-            using var first = QueueServices.InFolder(folder, queuesAsFiles);
-            using var second = QueueServices.InFolder(folder, queuesAsFiles);
+            using var first = new LuceneQueueServiceClient(folder);
+            using var second = new LuceneQueueServiceClient(folder);
             QueueClient[] queues = [first.GetQueueClient("busy"), second.GetQueueClient("busy")];
             queues[0].Create();
 

@@ -5,36 +5,26 @@ using Iciclecreek.Azure.Storage.Tests.Shared.Queues;
 
 namespace Iciclecreek.Azure.Storage.Lucene.Tests.Queues;
 
-// The queue behaviour every provider shares, in memory, with the queues kept as indexes and as files.
-[TestFixture(false)]
-[TestFixture(true)]
-public class QueueCrudTests(bool queuesAsFiles) : QueueCrudTestsBase
+// The queue behaviour every provider shares, against Lucene Directory objects in memory.
+public class QueueCrudTests : QueueCrudTestsBase
 {
-    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture(queuesAsFiles: queuesAsFiles);
+    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture();
 }
 
-[TestFixture(false)]
-[TestFixture(true)]
-public class QueueMessageTests(bool queuesAsFiles) : QueueMessageTestsBase
+public class QueueMessageTests : QueueMessageTestsBase
 {
-    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture(queuesAsFiles: queuesAsFiles);
+    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture();
 }
 
-[TestFixture(false)]
-[TestFixture(true)]
-public class QueueServiceClientTests(bool queuesAsFiles) : QueueServiceClientTestsBase
+public class QueueServiceClientTests : QueueServiceClientTestsBase
 {
-    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture(queuesAsFiles: queuesAsFiles);
+    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture();
 }
 
-/// <summary>The same message behaviour in a folder, and what only a folder can show.</summary>
-[TestFixture(false)]
-[TestFixture(true)]
-public class QueueMessageOnDiskTests(bool queuesAsFiles) : QueueMessageTestsBase
+/// <summary>The same message behaviour against a Lucene <c>Directory</c> in a folder, and what only a folder can show.</summary>
+public class QueueMessageOnDiskTests : QueueMessageTestsBase
 {
-    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture(onDisk: true, queuesAsFiles);
-
-    private LuceneStorageTestFixture Fixture => (LuceneStorageTestFixture)_fixture;
+    protected override StorageTestFixture CreateFixture() => new LuceneStorageTestFixture(onDisk: true);
 
     [Test]
     public void Messages_Survive_Closing_And_Reopening_In_Order_With_Their_State()
@@ -42,9 +32,9 @@ public class QueueMessageOnDiskTests(bool queuesAsFiles) : QueueMessageTestsBase
         _client.SendMessage("first");
         _client.SendMessage("second");
         var taken = _client.ReceiveMessages(1, TimeSpan.FromSeconds(60)).Value.Single();
-        Fixture.QueueService.Dispose();
+        ((LuceneStorageTestFixture)_fixture).QueueService.Dispose();
 
-        using var reopened = Fixture.OpenQueueService();
+        using var reopened = new LuceneQueueServiceClient(_fixture.TempPath);
         var queue = reopened.GetQueueClient("msgq");
 
         Assert.That(queue.Exists().Value, Is.True);
@@ -61,7 +51,7 @@ public class QueueMessageOnDiskTests(bool queuesAsFiles) : QueueMessageTestsBase
     [Test]
     public void Two_Clients_On_One_Folder_Share_The_Queue_And_Its_Order()
     {
-        using var otherService = Fixture.OpenQueueService();
+        using var otherService = new LuceneQueueServiceClient(_fixture.TempPath);
         var other = otherService.GetQueueClient("msgq");
 
         _client.SendMessage("from the first");
@@ -79,10 +69,10 @@ public class QueueMessageOnDiskTests(bool queuesAsFiles) : QueueMessageTestsBase
     [Test]
     public void A_Second_Client_On_The_Folder_Gets_Its_Turn_While_The_First_Is_Busy()
     {
-        using var otherService = Fixture.OpenQueueService();
+        using var otherService = new LuceneQueueServiceClient(_fixture.TempPath);
         var other = otherService.GetQueueClient("msgq");
 
-        // The first client never leaves the queue's index alone: four threads send without a pause.
+        // The first client never leaves the queue alone: four threads send without a pause.
         using var stop = new CancellationTokenSource();
         var sent = 0;
         var busy = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>

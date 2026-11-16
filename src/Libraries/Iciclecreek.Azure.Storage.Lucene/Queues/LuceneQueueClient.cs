@@ -22,7 +22,7 @@ public class LuceneQueueClient : QueueClient
         _queueName = queueName;
     }
 
-    private IQueueStore Store => _serviceClient.Store;
+    private LuceneQueueStore Store => _serviceClient.Store;
 
     // ── Properties ──────────────────────────────────────────────────────
 
