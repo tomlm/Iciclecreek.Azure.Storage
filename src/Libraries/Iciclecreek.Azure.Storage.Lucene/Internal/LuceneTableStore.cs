@@ -14,7 +14,12 @@ internal sealed class EntityEntry
     public string ETag = NewETag();
     public DateTimeOffset Timestamp = DateTimeOffset.UtcNow;
 
-    /// <summary>The table's own lock: holding it is what makes a read-check-write of an entity safe.</summary>
+    /// <summary>
+    /// Once the entry is in a table, the object that is the table's gate. <c>lock</c> on it is a
+    /// monitor on that object and not a turn at the gate, and keeps nobody out who takes a turn.
+    /// What makes a read-check-write of an entity safe is the change to the table that the caller
+    /// has already started (<see cref="TableStore.Enter"/>); every <c>lock</c> on this is inside one.
+    /// </summary>
     public object Lock = new();
 
     /// <summary>Where the entry is stored, once it has been read from or added to a table.</summary>
