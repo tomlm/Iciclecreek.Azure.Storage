@@ -67,6 +67,42 @@ public class QueueMessageOnDiskTests : QueueMessageTestsBase
     }
 
     [Test]
+    public void A_Second_Client_On_The_Folder_Gets_Its_Turn_While_The_First_Is_Busy()
+    {
+        using var otherService = new LuceneQueueServiceClient(_fixture.TempPath);
+        var other = otherService.GetQueueClient("msgq");
+
+        // The first client never leaves the queue's index alone: four threads send without a pause.
+        using var stop = new CancellationTokenSource();
+        var sent = 0;
+        var busy = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                _client.SendMessage("busy");
+                Interlocked.Increment(ref sent);
+            }
+        })).ToArray();
+        try
+        {
+            // Once the senders are under way there is always something to receive: they have four turns to the receiver's one.
+            Assert.That(SpinWait.SpinUntil(() => Volatile.Read(ref sent) >= 8, TimeSpan.FromSeconds(30)), Is.True);
+            for (var n = 0; n < 12; n++)
+            {
+                var waited = System.Diagnostics.Stopwatch.StartNew();
+                Assert.That(other.ReceiveMessages(1, TimeSpan.FromSeconds(60)).Value, Has.Length.EqualTo(1));
+                // In line behind the four senders, not shut out until a ten-second limit.
+                Assert.That(waited.Elapsed, Is.LessThan(TimeSpan.FromSeconds(8)));
+            }
+        }
+        finally
+        {
+            stop.Cancel();
+            Task.WaitAll(busy);
+        }
+    }
+
+    [Test]
     public void Clearing_A_Queue_Keeps_Later_Messages_In_Order()
     {
         _client.SendMessage("gone");

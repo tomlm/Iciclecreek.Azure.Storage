@@ -1,10 +1,8 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using Lucene.Net.Analysis.Core;
 using Lucene.Net.Documents;
 using Lucene.Net.Index;
 using Lucene.Net.Search;
-using Lucene.Net.Util;
 using LuceneDirectory = Lucene.Net.Store.Directory;
 
 namespace Iciclecreek.Azure.Storage.Lucene.Internal;
@@ -29,7 +27,10 @@ internal sealed class StoredMessage
 /// <para>
 /// Every operation opens the index, does its work and commits, holding the index's write lock
 /// only for that long. So nothing is lost if the process dies between operations, and several
-/// processes can share the queues: each waits its turn for the lock.
+/// clients and processes can share the queues. Clients in one process take turns in the order
+/// they asked. Another process has no place in that line: it keeps trying for the write lock,
+/// and is refused with <c>503 ServerBusy</c> if it has not got it in ten seconds
+/// (see <see cref="IndexWriteLock"/>).
 /// </para>
 /// </summary>
 internal sealed class LuceneQueueStore : IDisposable
@@ -49,12 +50,8 @@ internal sealed class LuceneQueueStore : IDisposable
     private const string NameField = "name";
     private const string MetadataField = "metadata";
 
-    /// <summary>How long an operation waits for another process to let go of an index.</summary>
-    private const long WriteLockTimeoutMs = 10_000;
-
     private readonly Func<string, LuceneDirectory> _directoryFactory;
     private readonly ConcurrentDictionary<string, LuceneDirectory> _directories = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, object> _gates = new(StringComparer.Ordinal);
 
     public LuceneQueueStore(Func<string, LuceneDirectory> directoryFactory) => _directoryFactory = directoryFactory;
 
@@ -62,20 +59,25 @@ internal sealed class LuceneQueueStore : IDisposable
 
     private LuceneDirectory DirectoryFor(string path) => _directories.GetOrAdd(path, _directoryFactory);
 
-    /// <summary>Changes an index and commits. One writer at a time in this process; other processes wait on the index's lock.</summary>
+    /// <summary>
+    /// Changes an index and commits. One writer at a time: clients in this process take turns at
+    /// the index's gate, and the writer is opened against other processes by <see cref="IndexWriteLock"/>.
+    /// </summary>
     private T Write<T>(string path, Func<IndexWriter, T> change)
     {
-        lock (_gates.GetOrAdd(path, _ => new object()))
+        var directory = DirectoryFor(path);
+        var gate = IndexWriteLock.GateFor(directory);
+        gate.Enter();
+        try
         {
-            var config = new IndexWriterConfig(LuceneVersion.LUCENE_48, new KeywordAnalyzer())
-            {
-                OpenMode = OpenMode.CREATE_OR_APPEND,
-                WriteLockTimeout = WriteLockTimeoutMs,
-            };
-            using var writer = new IndexWriter(DirectoryFor(path), config);
+            using var writer = IndexWriteLock.OpenWriter(directory);
             var result = change(writer);
             writer.Commit();
             return result;
+        }
+        finally
+        {
+            gate.Exit();
         }
     }
 
@@ -195,8 +197,14 @@ internal sealed class LuceneQueueStore : IDisposable
         });
 
     /// <summary>Takes up to <paramref name="max"/> visible messages, oldest first, and hides them for the timeout.</summary>
-    public List<StoredMessage> Dequeue(string queueName, int max, TimeSpan visibilityTimeout) =>
-        Write(QueuePath(queueName), writer =>
+    public List<StoredMessage> Dequeue(string queueName, int max, TimeSpan visibilityTimeout)
+    {
+        // Nothing to take and nothing to expire: say so without opening the writer, so that
+        // receivers polling an empty queue do not keep the index's lock from those who send to it.
+        if (!AnythingToTakeOrExpire(queueName))
+            return new List<StoredMessage>();
+
+        return Write(QueuePath(queueName), writer =>
         {
             var now = DateTimeOffset.UtcNow;
             writer.DeleteDocuments(NumericRangeQuery.NewInt64Range(ExpiresField, null, now.UtcTicks, true, true));
@@ -216,6 +224,22 @@ internal sealed class LuceneQueueStore : IDisposable
                 taken.Add(message);
             }
             return taken;
+        });
+    }
+
+    /// <summary>Whether the queue, as last committed, holds a message that is visible or has expired.</summary>
+    private bool AnythingToTakeOrExpire(string queueName) =>
+        Read(QueuePath(queueName), searcher =>
+        {
+            if (searcher == null || searcher.IndexReader.NumDocs == 0)
+                return false;
+            var now = DateTimeOffset.UtcNow;
+            var visibleOrExpired = new BooleanQuery
+            {
+                { VisibleAt(now), Occur.SHOULD },
+                { NumericRangeQuery.NewInt64Range(ExpiresField, null, now.UtcTicks, true, true), Occur.SHOULD },
+            };
+            return searcher.Search(visibleOrExpired, 1).TotalHits > 0;
         });
 
     /// <summary>Up to <paramref name="max"/> visible messages, oldest first, without taking them.</summary>

@@ -1,10 +1,8 @@
 using System.Collections;
 using System.Collections.Concurrent;
-using Lucene.Net.Analysis.Core;
 using Lucene.Net.Documents;
 using Lucene.Net.Index;
 using Lucene.Net.Search;
-using Lucene.Net.Util;
 using LuceneDirectory = Lucene.Net.Store.Directory;
 
 namespace Iciclecreek.Azure.Storage.Lucene.Internal;
@@ -40,13 +38,15 @@ internal sealed class EntityEntry
 internal sealed class TableStore
 {
     private readonly LuceneDirectory _directory;
-    private readonly object _gate = new();
+    // Shared with every other client in this process that has the same index open.
+    private readonly WriteGate _gate;
     private IndexWriter? _writer;
     private int _depth;
 
     public TableStore(LuceneDirectory directory)
     {
         _directory = directory;
+        _gate = IndexWriteLock.GateFor(directory);
         Entities = new LuceneEntityMap(this);
     }
 
@@ -57,29 +57,27 @@ internal sealed class TableStore
     internal object Gate => _gate;
 
     /// <summary>
-    /// Starts a change to the table: takes the table's lock in this process and the index's write
+    /// Starts a change to the table: takes the table's turn in this process and the index's write
     /// lock against other processes, so everything read and written until the returned object is
     /// disposed is one step. Disposing commits. May be nested.
+    /// <para>
+    /// Clients in this process are let in in the order they asked. Another process is not in that
+    /// line: if it keeps the write lock for ten seconds, this throws <c>503 ServerBusy</c>
+    /// (see <see cref="IndexWriteLock"/>).
+    /// </para>
     /// </summary>
     public IDisposable Enter()
     {
-        Monitor.Enter(_gate);
+        _gate.Enter();
         try
         {
             if (_depth == 0)
-            {
-                var config = new IndexWriterConfig(LuceneVersion.LUCENE_48, new KeywordAnalyzer())
-                {
-                    OpenMode = OpenMode.CREATE_OR_APPEND,
-                    WriteLockTimeout = 10_000,
-                };
-                _writer = new IndexWriter(_directory, config);
-            }
+                _writer = IndexWriteLock.OpenWriter(_directory);
             _depth++;
         }
         catch
         {
-            Monitor.Exit(_gate);
+            _gate.Exit();
             throw;
         }
         return new Session(this);
@@ -105,7 +103,7 @@ internal sealed class TableStore
         }
         finally
         {
-            Monitor.Exit(_gate);
+            _gate.Exit();
         }
     }
 
@@ -115,7 +113,7 @@ internal sealed class TableStore
     /// <summary>Reads the table: what the change in progress on this thread has written so far, or else what was last committed.</summary>
     internal T Read<T>(Func<IndexSearcher?, T> read)
     {
-        if (Monitor.IsEntered(_gate) && _writer != null)
+        if (_gate.IsHeldByCurrentThread && _writer != null)
         {
             using var live = DirectoryReader.Open(_writer, true);
             return read(new IndexSearcher(live));

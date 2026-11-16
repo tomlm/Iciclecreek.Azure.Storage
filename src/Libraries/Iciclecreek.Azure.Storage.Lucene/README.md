@@ -125,7 +125,12 @@ Each table, container and queue is a directory of its own under the one supplied
 
 ### Durability and sharing
 
-Every table and queue operation opens its index's writer, does its work, commits and closes the writer. Nothing is lost if the process dies between operations, and several processes can share the same folder: each waits up to ten seconds for another to finish.
+Every table and queue operation opens its index's writer, does its work, commits and closes the writer. Nothing is lost if the process dies between operations, and several clients and processes can share the same folder.
+
+- **Clients in one process take turns.** All clients on the same folder write to a table or queue one at a time, in the order they asked, so a busy client cannot shut another out.
+- **Processes do not queue; they retry.** An index can only be written by one process at a time, and Lucene's write lock cannot be waited on, only tried. An operation that finds the index held by another process tries again every few tens of milliseconds for up to ten seconds. That works well when processes write now and then. Under sustained writing from one process, another can lose every try; its call then fails with `RequestFailedException`, status `503`, error code `ServerBusy` (the `LockObtainFailedException` is the inner exception), and can be retried like the same error from Azure.
+- **Receiving from an empty queue does not write,** so idle receivers do not hold up senders.
+- **Blobs are not coordinated between clients:** two clients or processes writing the same blob at the same moment are not serialised.
 
 ### Differences from Azure Storage
 
