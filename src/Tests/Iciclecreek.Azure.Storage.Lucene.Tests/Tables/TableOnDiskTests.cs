@@ -45,7 +45,8 @@ public class TableOnDiskTests
         var tables = Directory.GetDirectories(Path.Combine(_fixture.TempPath, "tables")).Select(Path.GetFileName);
         var queues = Directory.GetDirectories(Path.Combine(_fixture.TempPath, "queues")).Select(Path.GetFileName);
 
-        Assert.That(tables, Is.EquivalentTo(new[] { "People", "Orders", "__registry__" }));
+        // A table's folder is its name in lower case: table names are not case sensitive, and folder names must not depend on it.
+        Assert.That(tables, Is.EquivalentTo(new[] { "people", "orders", "__registry__" }));
         Assert.That(queues, Is.EquivalentTo(new[] { "work", "__registry__" }));
     }
 

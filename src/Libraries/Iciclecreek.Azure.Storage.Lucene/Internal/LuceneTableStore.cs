@@ -247,11 +247,19 @@ internal sealed class LuceneEntityMap(TableStore table) : IEnumerable<KeyValuePa
 
 /// <summary>
 /// The tables of one service client: which exist, kept in a small registry index, and the store
-/// of each. Every table is the directory <c>tables/{name}</c>.
+/// of each. Every table is the directory <c>tables/{name}</c>, with the name in lower case and
+/// made safe as a folder name by <see cref="StorageNames.Directory"/>.
+/// <para>
+/// As in Azure, a table's name is not case sensitive: <c>Orders</c> and <c>orders</c> are one
+/// table, listed under the name it was created with.
+/// </para>
 /// </summary>
 internal sealed class LuceneTableRegistry : IDisposable
 {
-    private const string RegistryPath = "tables/__registry__";
+    private const string RegistryPath = "tables/" + StorageNames.Registry;
+    /// <summary>The table's name in lower case: what it is found by.</summary>
+    private const string KeyField = "key";
+    /// <summary>The table's name as it was created.</summary>
     private const string NameField = "name";
 
     private readonly Func<string, LuceneDirectory> _directoryFactory;
@@ -267,12 +275,15 @@ internal sealed class LuceneTableRegistry : IDisposable
 
     private LuceneDirectory DirectoryFor(string path) => _directories.GetOrAdd(path, _directoryFactory);
 
+    /// <summary>What a table is known by, however its name is capitalised. Refuses a name that is empty or reserved.</summary>
+    private static string Key(string tableName) => StorageNames.Check(tableName).ToLowerInvariant();
+
     /// <summary>The store for a table name, whether or not the table exists.</summary>
     public TableStore NewStore(string tableName) =>
-        _stores.GetOrAdd(tableName, name => new TableStore(DirectoryFor("tables/" + name)));
+        _stores.GetOrAdd(Key(tableName), key => new TableStore(DirectoryFor("tables/" + StorageNames.Directory(key))));
 
     private bool Exists(string tableName) =>
-        _registry.Read(searcher => searcher != null && searcher.Search(new TermQuery(new Term(NameField, tableName)), 1).TotalHits > 0);
+        _registry.Read(searcher => searcher != null && searcher.Search(new TermQuery(new Term(KeyField, Key(tableName))), 1).TotalHits > 0);
 
     public bool ContainsKey(string tableName) => Exists(tableName);
 
@@ -288,7 +299,11 @@ internal sealed class LuceneTableRegistry : IDisposable
         using var change = _registry.Enter();
         if (Exists(tableName))
             return false;
-        _registry.Writer.AddDocument(new Document { new StringField(NameField, tableName, Field.Store.YES) });
+        _registry.Writer.AddDocument(new Document
+        {
+            new StringField(KeyField, Key(tableName), Field.Store.YES),
+            new StoredField(NameField, tableName),
+        });
         return true;
     }
 
@@ -307,7 +322,7 @@ internal sealed class LuceneTableRegistry : IDisposable
         {
             if (!Exists(tableName))
                 return false;
-            _registry.Writer.DeleteDocuments(new Term(NameField, tableName));
+            _registry.Writer.DeleteDocuments(new Term(KeyField, Key(tableName)));
         }
         store.Entities.Clear();
         return true;

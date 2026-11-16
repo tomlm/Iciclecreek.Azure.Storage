@@ -12,6 +12,12 @@ namespace Iciclecreek.Azure.Storage.Lucene.Queues;
 /// Drop-in replacement for <see cref="QueueServiceClient"/> that keeps queues in Lucene indexes:
 /// one index per queue, with a document per message. The indexes live wherever the directory
 /// factory puts them: in memory, in a folder, or in any other Lucene <c>Directory</c>.
+/// <para>
+/// In the directory name, any character of the queue's name other than a lowercase letter, a
+/// digit or a hyphen is written as <c>_</c> and its four-digit hexadecimal code, so that every
+/// queue is a folder of its own inside <c>queues</c> on any file system. The name
+/// <c>__registry__</c> is refused with <c>400 InvalidResourceName</c>.
+/// </para>
 /// </summary>
 public class LuceneQueueServiceClient : QueueServiceClient, IDisposable
 {

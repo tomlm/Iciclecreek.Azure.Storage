@@ -89,8 +89,8 @@ Each table, container and queue is a directory of its own under the one supplied
 ```
 {directory}
   tables
-    People
-    Orders
+    people
+    orders
     __registry__      the list of tables
   blobs
     photos
@@ -99,6 +99,15 @@ Each table, container and queue is a directory of its own under the one supplied
     work
     __registry__      the list of queues and their metadata
 ```
+
+### Names
+
+A name made of lowercase letters, digits and hyphens is its own directory name. Anything else is made safe first, so that two names never share a directory and no name can point outside the folder:
+
+- **Table names are not case sensitive,** as in Azure: `People` and `people` are one table, listed under the name it was created with, in the directory `people`.
+- **Queue and container names are case sensitive.** `Work` and `work` are two queues, on any file system.
+- **Any other character** is written in the directory name as `_` and its four-digit hexadecimal code: the queue `Work` is the directory `_0057ork`, and a name such as `../x` is the single directory `_002e_002e_002fx`. The Azure naming rules are not otherwise enforced.
+- **`__registry__` and the empty name are refused** with `400 InvalidResourceName`.
 
 ## Behaviour
 

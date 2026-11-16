@@ -1,6 +1,7 @@
 using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Iciclecreek.Azure.Storage.Lucene.Internal;
 using System.Collections.Concurrent;
 using Lucene.Net.Store;
 using LuceneDirectory = Lucene.Net.Store.Directory;
@@ -13,6 +14,11 @@ namespace Iciclecreek.Azure.Storage.Lucene.Blobs;
 /// file per blob. It supports upload (with If-None-Match), download, delete,
 /// properties and listing (flat or by hierarchy); it does not support block, append or page
 /// blob operations, leases, tags, snapshots or copies.
+/// <para>
+/// In the directory name, any character of the container's name other than a lowercase letter, a
+/// digit or a hyphen is written as <c>_</c> and its four-digit hexadecimal code, so that every
+/// name is a folder of its own inside <c>blobs</c> on any file system.
+/// </para>
 /// </summary>
 public sealed class LuceneBlobServiceClient : BlobServiceClient
 {
@@ -49,8 +55,10 @@ public sealed class LuceneBlobServiceClient : BlobServiceClient
         return path => FSDirectory.Open(Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar)));
     }
 
+    // The container's name is made safe as a folder name, so that containers whose names differ only
+    // by case stay apart on any file system and no name leads outside "blobs".
     internal LuceneBlobStore GetStore(string containerName)
-        => _stores.GetOrAdd(containerName, name => new LuceneBlobStore(() => _directoryFactory($"blobs/{name}")));
+        => _stores.GetOrAdd(containerName, name => new LuceneBlobStore(() => _directoryFactory($"blobs/{StorageNames.Directory(name)}")));
 
     /// <inheritdoc/>
     public override string AccountName => "lucene";

@@ -35,7 +35,7 @@ internal sealed class StoredMessage
 /// </summary>
 internal sealed class LuceneQueueStore : IDisposable
 {
-    private const string Registry = "queues/__registry__";
+    private const string Registry = "queues/" + StorageNames.Registry;
     private const string SequenceKey = "sequence";
 
     private const string IdField = "id";
@@ -55,7 +55,11 @@ internal sealed class LuceneQueueStore : IDisposable
 
     public LuceneQueueStore(Func<string, LuceneDirectory> directoryFactory) => _directoryFactory = directoryFactory;
 
-    private static string QueuePath(string queueName) => "queues/" + queueName;
+    /// <summary>
+    /// Where a queue's index is kept. The name is made safe as a folder name, so that queues whose
+    /// names differ only by case stay apart on any file system and no name leads outside <c>queues</c>.
+    /// </summary>
+    private static string QueuePath(string queueName) => "queues/" + StorageNames.Directory(queueName);
 
     private LuceneDirectory DirectoryFor(string path) => _directories.GetOrAdd(path, _directoryFactory);
 
@@ -96,10 +100,11 @@ internal sealed class LuceneQueueStore : IDisposable
     public bool QueueExists(string queueName) =>
         Read(Registry, searcher => searcher != null && searcher.Search(new TermQuery(new Term(NameField, queueName)), 1).TotalHits > 0);
 
-    /// <summary>Makes the queue; false when it was already there.</summary>
+    /// <summary>Makes the queue; false when it was already there. Refuses a name that is empty or reserved.</summary>
     public bool CreateQueue(string queueName, IDictionary<string, string>? metadata) =>
         Write(Registry, writer =>
         {
+            StorageNames.Check(queueName);
             using var reader = DirectoryReader.Open(writer, true);
             if (new IndexSearcher(reader).Search(new TermQuery(new Term(NameField, queueName)), 1).TotalHits > 0)
                 return false;

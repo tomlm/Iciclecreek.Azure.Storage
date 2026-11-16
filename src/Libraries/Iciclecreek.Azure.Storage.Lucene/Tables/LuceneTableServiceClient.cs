@@ -14,6 +14,13 @@ namespace Iciclecreek.Azure.Storage.Lucene.Tables;
 /// Drop-in replacement for <see cref="Azure.Data.Tables.TableServiceClient"/> that keeps tables in
 /// Lucene indexes: each table is a directory of its own, <c>tables/{table}</c>, with its own index
 /// writer and a document per entity.
+/// <para>
+/// As in Azure, table names are not case sensitive: <c>Orders</c> and <c>orders</c> are one table.
+/// The directory name is the table's name in lower case, with any character other than a to z,
+/// a digit or a hyphen written as <c>_</c> and its four-digit hexadecimal code, so that every
+/// table is a folder of its own inside <c>tables</c> on any file system. The name
+/// <c>__registry__</c> is refused with <c>400 InvalidResourceName</c>.
+/// </para>
 /// </summary>
 public class LuceneTableServiceClient : TableServiceClient, IDisposable
 {
