@@ -314,8 +314,9 @@ internal sealed class LuceneTableRegistry : IDisposable
         using var change = _registry.Enter();
         if (Exists(tableName))
             return false;
-        // Nothing in the index of a table that does not exist can be live: it was left by a delete
-        // that never finished. It is emptied before the table is listed, so the table is empty by
+        // Nothing in the index of a table that does not exist can be live: it was written while the
+        // table was being deleted, after the delete had emptied the index and before it took the
+        // table off the list. It is emptied before the table is listed, so the table is empty by
         // the time anyone can find it.
         store.Entities.Clear();
         _registry.Writer.AddDocument(new Document
@@ -337,13 +338,16 @@ internal sealed class LuceneTableRegistry : IDisposable
     public bool TryRemove(string tableName, out TableStore store)
     {
         store = NewStore(tableName);
-        using (_registry.Enter())
-        {
-            if (!Exists(tableName))
-                return false;
-            _registry.Writer.DeleteDocuments(new Term(KeyField, Key(tableName)));
-        }
+        using var change = _registry.Enter();
+        if (!Exists(tableName))
+            return false;
+        // Emptied while the registry is held, and before the table is taken off the list. Nobody can
+        // make the table again until the registry is let go, so what is emptied here is the table
+        // being deleted and never one made since. The registry and then the table's index is also
+        // the order TryAdd takes them in, and nothing takes them the other way round. If the index
+        // cannot be had (503), the table stays listed with its entities.
         store.Entities.Clear();
+        _registry.Writer.DeleteDocuments(new Term(KeyField, Key(tableName)));
         return true;
     }
 

@@ -2,17 +2,21 @@ using Azure;
 using Azure.Data.Tables;
 using Iciclecreek.Azure.Storage.Lucene.Queues;
 using Iciclecreek.Azure.Storage.Lucene.Tables;
+using FilterDirectory = Lucene.Net.Store.FilterDirectory;
 using FSDirectory = Lucene.Net.Store.FSDirectory;
 using IndexWriter = Lucene.Net.Index.IndexWriter;
 using IndexWriterConfig = Lucene.Net.Index.IndexWriterConfig;
 using KeywordAnalyzer = Lucene.Net.Analysis.Core.KeywordAnalyzer;
+using LuceneDirectory = Lucene.Net.Store.Directory;
+using LuceneLock = Lucene.Net.Store.Lock;
 using LuceneVersion = Lucene.Net.Util.LuceneVersion;
 
 namespace Iciclecreek.Azure.Storage.Lucene.Tests.Concurrency;
 
 /// <summary>
-/// A table or queue that is deleted and made again starts empty, whatever was going on when it
-/// was deleted: a write that was racing the delete, or a delete that never finished.
+/// A table or queue that is deleted and made again starts empty, whatever was written to it while
+/// it was being deleted. And a delete takes only what it was asked to delete: a table or queue
+/// made again while the delete runs keeps what is then written to it.
 /// </summary>
 public class DeleteRaceTests
 {
@@ -95,7 +99,7 @@ public class DeleteRaceTests
     }
 
     [Test]
-    public void Making_A_Table_Or_Queue_Clears_What_A_Delete_That_Never_Finished_Left_Behind()
+    public void Making_A_Table_Or_Queue_Clears_What_Was_Left_In_Its_Index_After_It_Was_Deleted()
     {
         var folder = Path.Combine(Path.GetTempPath(), "IciclecreekLuceneRaces-" + Guid.NewGuid().ToString("N"));
         try
@@ -109,8 +113,10 @@ public class DeleteRaceTests
             queue.Create();
             queue.SendMessage("left behind");
 
-            // A delete takes the name off the list and then empties the index. Here is one that
-            // died in between: the lists are emptied, behind the clients' backs, and nothing else.
+            // A delete empties the index and then takes the name off the list, so a write that gets
+            // in between the two is left in the index of something that is no longer listed. Here
+            // that is arrived at directly: the lists are emptied, behind the clients' backs, and
+            // nothing else.
             foreach (var kind in new[] { "tables", "queues" })
             {
                 using var registry = FSDirectory.Open(Path.Combine(folder, kind, "__registry__"));
@@ -132,6 +138,138 @@ public class DeleteRaceTests
         {
             if (Directory.Exists(folder))
                 Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Test]
+    public void A_Queue_Made_Again_While_It_Is_Being_Deleted_Keeps_What_Is_Sent_To_It()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "IciclecreekLuceneRaces-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var deleter = new AnotherProcess(folder);
+            var maker = new AnotherProcess(folder);
+            using var deletersQueues = new LuceneQueueServiceClient(deleter.Open);
+            using var makersQueues = new LuceneQueueServiceClient(maker.Open);
+            var doomed = deletersQueues.GetQueueClient("remade");
+            var remade = makersQueues.GetQueueClient("remade");
+            remade.Create();
+            remade.SendMessage("old");
+
+            DeleteWhileItIsMadeAgain(deleter, maker, "queues",
+                delete: () => doomed.Delete(),
+                makeAgain: () =>
+                {
+                    remade.Create();
+                    remade.SendMessage("new");
+                });
+
+            Assert.That(remade.Exists().Value, Is.True);
+            Assert.That(remade.PeekMessages(10).Value.Select(m => m.Body.ToString()), Is.EqualTo(new[] { "new" }));
+        }
+        finally
+        {
+            if (Directory.Exists(folder))
+                Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Test]
+    public void A_Table_Made_Again_While_It_Is_Being_Deleted_Keeps_What_Is_Added_To_It()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "IciclecreekLuceneRaces-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var deleter = new AnotherProcess(folder);
+            var maker = new AnotherProcess(folder);
+            using var deletersTables = new LuceneTableServiceClient(deleter.Open);
+            using var makersTables = new LuceneTableServiceClient(maker.Open);
+            var doomed = deletersTables.GetTableClient("remade");
+            var remade = makersTables.GetTableClient("remade");
+            remade.Create();
+            remade.AddEntity(new TableEntity("p", "old"));
+
+            DeleteWhileItIsMadeAgain(deleter, maker, "tables",
+                delete: () => doomed.Delete(),
+                makeAgain: () =>
+                {
+                    remade.Create();
+                    remade.AddEntity(new TableEntity("p", "new"));
+                });
+
+            Assert.That(makersTables.Query().Select(t => t.Name), Is.EqualTo(new[] { "remade" }));
+            Assert.That(remade.Query<TableEntity>().Select(e => e.RowKey), Is.EqualTo(new[] { "new" }));
+        }
+        finally
+        {
+            if (Directory.Exists(folder))
+                Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Deletes the table or queue <c>remade</c> while another process makes it again and writes to
+    /// it. The delete is stopped where it asks for the write lock of the table's or queue's own
+    /// index, which is where it waits whenever another writer has that index, and is let go once
+    /// the other process has either done its work or been kept out by the delete.
+    /// </summary>
+    private static void DeleteWhileItIsMadeAgain(AnotherProcess deleter, AnotherProcess maker, string kind, Action delete, Action makeAgain)
+    {
+        using var deleteIsAtTheIndex = new ManualResetEventSlim();
+        using var letTheDeleteGo = new ManualResetEventSlim();
+        using var makerIsKeptOut = new ManualResetEventSlim();
+        deleter.AsksForWriteLock = path =>
+        {
+            if (path != $"{kind}/remade")
+                return;
+            deleteIsAtTheIndex.Set();
+            letTheDeleteGo.Wait();
+        };
+        var asksForTheRegistry = 0;
+        maker.AsksForWriteLock = path =>
+        {
+            // Asking a second time means the first try was refused: the delete has the registry.
+            if (path == $"{kind}/__registry__" && Interlocked.Increment(ref asksForTheRegistry) == 2)
+                makerIsKeptOut.Set();
+        };
+
+        var deleting = Task.Run(delete);
+        Task makingAgain;
+        try
+        {
+            Assert.That(deleteIsAtTheIndex.Wait(TimeSpan.FromSeconds(30)), Is.True, "the delete got as far as the index");
+            makingAgain = Task.Run(makeAgain);
+            Assert.That(SpinWait.SpinUntil(() => makingAgain.IsCompleted || makerIsKeptOut.IsSet, TimeSpan.FromSeconds(30)), Is.True,
+                "the other process either got in or was kept out");
+        }
+        finally
+        {
+            letTheDeleteGo.Set();
+        }
+        Task.WaitAll(deleting, makingAgain);
+    }
+
+    /// <summary>
+    /// The directories of a client that stands in for another process. A directory that is not a
+    /// plain folder directory has write gates of its own, so its client shares none with any other
+    /// client and meets them only at Lucene's write lock, as a second process does.
+    /// </summary>
+    private sealed class AnotherProcess(string folder)
+    {
+        /// <summary>Called with a directory's path each time the write lock of its index is asked for.</summary>
+        public Action<string>? AsksForWriteLock { get; set; }
+
+        public LuceneDirectory Open(string path) =>
+            new Watched(FSDirectory.Open(Path.Combine(folder, path.Replace('/', Path.DirectorySeparatorChar))), () => AsksForWriteLock?.Invoke(path));
+
+        private sealed class Watched(LuceneDirectory inner, Action asksForWriteLock) : FilterDirectory(inner)
+        {
+            public override LuceneLock MakeLock(string name)
+            {
+                if (name == IndexWriter.WRITE_LOCK_NAME)
+                    asksForWriteLock();
+                return base.MakeLock(name);
+            }
         }
     }
 }

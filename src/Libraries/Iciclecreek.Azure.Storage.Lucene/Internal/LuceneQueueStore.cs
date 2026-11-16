@@ -125,27 +125,30 @@ internal sealed class LuceneQueueStore : IDisposable
             if (new IndexSearcher(reader).Search(new TermQuery(new Term(NameField, queueName)), 1).TotalHits > 0)
                 return false;
             // Nothing in the index of a queue that does not exist can be live: it was sent while the
-            // queue was being deleted, or left by a delete that never finished. It is emptied before
-            // the queue is listed, so the queue is empty by the time anyone can find it.
+            // queue was being deleted, after the delete had emptied the index and before it took the
+            // queue off the list. It is emptied before the queue is listed, so the queue is empty by
+            // the time anyone can find it.
             Write(QueuePath(queueName), Empty);
             writer.AddDocument(RegistryDocument(queueName, metadata));
             return true;
         });
 
     /// <summary>Removes the queue and its messages; false when there was no such queue.</summary>
-    public bool DeleteQueue(string queueName)
-    {
-        var existed = Write(Registry, writer =>
+    public bool DeleteQueue(string queueName) =>
+        Write(Registry, writer =>
         {
             using var reader = DirectoryReader.Open(writer, true);
-            var found = new IndexSearcher(reader).Search(new TermQuery(new Term(NameField, queueName)), 1).TotalHits > 0;
+            if (new IndexSearcher(reader).Search(new TermQuery(new Term(NameField, queueName)), 1).TotalHits == 0)
+                return false;
+            // Emptied while the registry is held, and before the queue is taken off the list. Nobody
+            // can make the queue again until the registry is let go, so what is emptied here is the
+            // queue being deleted and never one made since. The registry and then the queue's index
+            // is also the order CreateQueue takes them in, and nothing takes them the other way round.
+            // If the index cannot be had (503), the queue stays listed with its messages.
+            Write(QueuePath(queueName), queue => { queue.DeleteAll(); return true; });
             writer.DeleteDocuments(new Term(NameField, queueName));
-            return found;
+            return true;
         });
-        if (existed)
-            Write(QueuePath(queueName), writer => { writer.DeleteAll(); return true; });
-        return existed;
-    }
 
     /// <summary>The queue's metadata, or null when there is no such queue.</summary>
     public IDictionary<string, string>? GetMetadata(string queueName) =>
