@@ -71,6 +71,72 @@ internal static class AtomicFile
         }, ct).ConfigureAwait(false);
     }
 
+    /// <summary>What <see cref="ReadModifyWriteAsync{T}"/> does with the file after reading it.</summary>
+    public enum Change
+    {
+        /// <summary>Leave the file as it is.</summary>
+        Keep,
+        /// <summary>Replace the file's content.</summary>
+        Write,
+        /// <summary>Delete the file.</summary>
+        Delete,
+    }
+
+    /// <summary>
+    /// Read a file, decide, and then keep, rewrite or delete it — all while holding the file
+    /// exclusively, so two callers (threads or processes) can never both act on the same content.
+    /// Returns <paramref name="missing"/> when the file does not exist.
+    /// </summary>
+    /// <param name="decide">Given the file's text, says what to do with it and what to return.</param>
+    public static async Task<T> ReadModifyWriteAsync<T>(
+        string path, Func<string, (Change Change, string Text, T Result)> decide, T missing, CancellationToken ct = default)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                // FileShare.Delete lets this holder delete the file while it is open; nobody else can read or write it meanwhile.
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Delete))
+                {
+                    string text;
+                    using (var reader = new StreamReader(fs, System.Text.Encoding.UTF8, true, 4096, leaveOpen: true))
+                        text = await reader.ReadToEndAsync().ConfigureAwait(false);
+
+                    var (change, newText, result) = decide(text);
+                    if (change == Change.Delete)
+                    {
+                        File.Delete(path);
+                    }
+                    else if (change == Change.Write)
+                    {
+                        fs.SetLength(0);
+                        fs.Seek(0, SeekOrigin.Begin);
+                        // No byte-order mark: the file must read back exactly as the text written.
+                        using (var writer = new StreamWriter(fs, new System.Text.UTF8Encoding(false), 4096, leaveOpen: true))
+                        {
+                            await writer.WriteAsync(newText.AsMemory(), ct).ConfigureAwait(false);
+                            await writer.FlushAsync().ConfigureAwait(false);
+                        }
+                    }
+                    return result;
+                }
+            }
+            catch (FileNotFoundException)
+            {
+                return missing;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return missing;
+            }
+            catch (IOException) when (attempt < MaxRetries - 1)
+            {
+                // Held by someone else; wait for them.
+                await Task.Delay(RetryDelayMs, ct).ConfigureAwait(false);
+            }
+        }
+    }
+
     /// <summary>
     /// Read a file with retry if another thread holds an exclusive lock.
     /// </summary>

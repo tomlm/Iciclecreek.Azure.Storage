@@ -5,7 +5,8 @@ namespace Iciclecreek.Azure.Storage.FileSystem.Queues.Internal;
 
 /// <summary>
 /// Filesystem-backed queue storage. Each queue is a directory; each message is a JSON file.
-/// Layout: {QueuesRootPath}/{queueName}/messages/{messageId}.json
+/// Layout: {QueuesRootPath}/{queueName}/messages/{messageId}.json. Message IDs sort in the order
+/// the messages were sent, which is what makes the queue first in, first out.
 /// </summary>
 internal sealed class QueueStore
 {
@@ -65,7 +66,53 @@ internal sealed class QueueStore
 
     // ── Messages ────────────────────────────────────────────────────────
 
+    private static long _lastTicks;
+
     public string MessagePath(string messageId) => Path.Combine(MessagesPath, $"{messageId}.json");
+
+    /// <summary>
+    /// A new message ID that sorts after every ID this process made before it: the time in
+    /// ticks, never repeated, then a GUID. Messages are files named by their ID, so file-name
+    /// order is the order the messages were sent in, and a message is still found by its ID alone.
+    /// </summary>
+    private static string NewMessageId()
+    {
+        long ticks;
+        while (true)
+        {
+            var last = Interlocked.Read(ref _lastTicks);
+            ticks = Math.Max(DateTimeOffset.UtcNow.UtcTicks, last + 1);
+            if (Interlocked.CompareExchange(ref _lastTicks, ticks, last) == last)
+                break;
+        }
+        return $"{ticks:D19}-{Guid.NewGuid():N}";
+    }
+
+    /// <summary>When a message sent now expires; a time to live of -1 second means never, as in Azure.</summary>
+    private static DateTimeOffset ExpiryFor(DateTimeOffset now, TimeSpan? timeToLive)
+    {
+        var ttl = timeToLive ?? TimeSpan.FromDays(7);
+        return ttl < TimeSpan.Zero || ttl >= DateTimeOffset.MaxValue - now ? DateTimeOffset.MaxValue : now + ttl;
+    }
+
+    /// <summary>The message files in the order the messages were sent.</summary>
+    private List<string> MessageFiles() =>
+        Directory.Exists(MessagesPath)
+            ? Directory.EnumerateFiles(MessagesPath, "*.json").OrderBy(Path.GetFileName, StringComparer.Ordinal).ToList()
+            : new List<string>();
+
+    /// <summary>The message in the text, or null when the file is damaged (a write cut short by a crash).</summary>
+    private QueueMessageFile? Parse(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<QueueMessageFile>(json, Options.JsonSerializerOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     public async Task<QueueMessageFile> EnqueueAsync(string messageText, TimeSpan? visibilityTimeout, TimeSpan? timeToLive, CancellationToken ct = default)
     {
@@ -74,128 +121,96 @@ internal sealed class QueueStore
         var now = DateTimeOffset.UtcNow;
         var msg = new QueueMessageFile
         {
-            MessageId = Guid.NewGuid().ToString(),
+            MessageId = NewMessageId(),
             PopReceipt = Guid.NewGuid().ToString(),
             MessageText = messageText,
             InsertedOn = now,
-            ExpiresOn = now + (timeToLive ?? TimeSpan.FromDays(7)),
+            ExpiresOn = ExpiryFor(now, timeToLive),
             NextVisibleOn = now + (visibilityTimeout ?? TimeSpan.Zero),
             DequeueCount = 0
         };
 
+        // Written under another name and then renamed, so a receiver never sees half a message.
         var json = JsonSerializer.Serialize(msg, Options.JsonSerializerOptions);
-        await AtomicFile.WriteAllTextAsync(MessagePath(msg.MessageId), json, ct).ConfigureAwait(false);
+        var path = MessagePath(msg.MessageId);
+        var partial = path + ".tmp";
+        await AtomicFile.WriteAllTextAsync(partial, json, ct).ConfigureAwait(false);
+        File.Move(partial, path);
         return msg;
     }
 
     public async Task<List<QueueMessageFile>> DequeueAsync(int maxMessages, TimeSpan visibilityTimeout, CancellationToken ct = default)
     {
         var result = new List<QueueMessageFile>();
-        if (!Directory.Exists(MessagesPath)) return result;
-
-        var now = DateTimeOffset.UtcNow;
-        var files = Directory.EnumerateFiles(MessagesPath, "*.json")
-            .OrderBy(f => f) // deterministic order
-            .ToList();
-
-        foreach (var file in files)
+        foreach (var file in MessageFiles())
         {
             if (result.Count >= maxMessages) break;
             ct.ThrowIfCancellationRequested();
 
-            try
+            // Read, check and claim under one exclusive hold on the file, so no two receivers get the same message.
+            var claimed = await AtomicFile.ReadModifyWriteAsync<QueueMessageFile?>(file, json =>
             {
-                var json = await File.ReadAllTextAsync(file, ct).ConfigureAwait(false);
-                var msg = JsonSerializer.Deserialize<QueueMessageFile>(json, Options.JsonSerializerOptions);
-                if (msg == null) continue;
+                var now = DateTimeOffset.UtcNow;
+                var msg = Parse(json);
+                if (msg == null) return (AtomicFile.Change.Keep, "", null);
+                if (msg.ExpiresOn <= now) return (AtomicFile.Change.Delete, "", null);
+                if (msg.NextVisibleOn > now) return (AtomicFile.Change.Keep, "", null);
 
-                // Skip expired
-                if (msg.ExpiresOn <= now)
-                {
-                    try { File.Delete(file); } catch { }
-                    continue;
-                }
-
-                // Skip not yet visible
-                if (msg.NextVisibleOn > now) continue;
-
-                // Dequeue: update visibility + count
                 msg.DequeueCount++;
                 msg.PopReceipt = Guid.NewGuid().ToString();
                 msg.NextVisibleOn = now + visibilityTimeout;
+                return (AtomicFile.Change.Write, JsonSerializer.Serialize(msg, Options.JsonSerializerOptions), msg);
+            }, null, ct).ConfigureAwait(false);
 
-                var updated = JsonSerializer.Serialize(msg, Options.JsonSerializerOptions);
-                await AtomicFile.WriteAllTextAsync(file, updated, ct).ConfigureAwait(false);
-                result.Add(msg);
-            }
-            catch (IOException) { /* file locked or deleted concurrently */ }
+            if (claimed != null)
+                result.Add(claimed);
         }
-
         return result;
     }
 
     public async Task<List<QueueMessageFile>> PeekAsync(int maxMessages, CancellationToken ct = default)
     {
         var result = new List<QueueMessageFile>();
-        if (!Directory.Exists(MessagesPath)) return result;
-
         var now = DateTimeOffset.UtcNow;
-        var files = Directory.EnumerateFiles(MessagesPath, "*.json")
-            .OrderBy(f => f)
-            .ToList();
-
-        foreach (var file in files)
+        foreach (var file in MessageFiles())
         {
             if (result.Count >= maxMessages) break;
             ct.ThrowIfCancellationRequested();
 
             try
             {
-                var json = await File.ReadAllTextAsync(file, ct).ConfigureAwait(false);
-                var msg = JsonSerializer.Deserialize<QueueMessageFile>(json, Options.JsonSerializerOptions);
-                if (msg == null) continue;
-
-                if (msg.ExpiresOn <= now) continue;
-                if (msg.NextVisibleOn > now) continue;
-
+                var msg = Parse(await File.ReadAllTextAsync(file, ct).ConfigureAwait(false));
+                if (msg == null || msg.ExpiresOn <= now || msg.NextVisibleOn > now) continue;
                 result.Add(msg);
             }
-            catch (IOException) { }
+            catch (IOException) { /* deleted meanwhile, or held by a receiver that is claiming it */ }
         }
-
         return result;
     }
 
     public bool DeleteMessage(string messageId, string popReceipt)
     {
-        var path = MessagePath(messageId);
-        if (!File.Exists(path)) return false;
-
-        var json = File.ReadAllText(path);
-        var msg = JsonSerializer.Deserialize<QueueMessageFile>(json, Options.JsonSerializerOptions);
-        if (msg == null || msg.PopReceipt != popReceipt) return false;
-
-        File.Delete(path);
-        return true;
+        return AtomicFile.ReadModifyWriteAsync(MessagePath(messageId), json =>
+        {
+            var msg = Parse(json);
+            var matches = msg != null && msg.PopReceipt == popReceipt;
+            return (matches ? AtomicFile.Change.Delete : AtomicFile.Change.Keep, "", matches);
+        }, false).GetAwaiter().GetResult();
     }
 
     public async Task<QueueMessageFile?> UpdateMessageAsync(string messageId, string popReceipt, string? messageText, TimeSpan visibilityTimeout, CancellationToken ct = default)
     {
-        var path = MessagePath(messageId);
-        if (!File.Exists(path)) return null;
+        return await AtomicFile.ReadModifyWriteAsync<QueueMessageFile?>(MessagePath(messageId), json =>
+        {
+            var msg = Parse(json);
+            if (msg == null || msg.PopReceipt != popReceipt) return (AtomicFile.Change.Keep, "", null);
 
-        var json = await File.ReadAllTextAsync(path, ct).ConfigureAwait(false);
-        var msg = JsonSerializer.Deserialize<QueueMessageFile>(json, Options.JsonSerializerOptions);
-        if (msg == null || msg.PopReceipt != popReceipt) return null;
-
-        if (messageText != null)
-            msg.MessageText = messageText;
-        msg.PopReceipt = Guid.NewGuid().ToString();
-        msg.NextVisibleOn = DateTimeOffset.UtcNow + visibilityTimeout;
-
-        var updated = JsonSerializer.Serialize(msg, Options.JsonSerializerOptions);
-        await AtomicFile.WriteAllTextAsync(path, updated, ct).ConfigureAwait(false);
-        return msg;
+            if (messageText != null)
+                msg.MessageText = messageText;
+            msg.PopReceipt = Guid.NewGuid().ToString();
+            msg.NextVisibleOn = DateTimeOffset.UtcNow + visibilityTimeout;
+            return (AtomicFile.Change.Write, JsonSerializer.Serialize(msg, Options.JsonSerializerOptions), msg);
+        }, null, ct).ConfigureAwait(false);
     }
 
     public void ClearMessages()

@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/Libraries/">
     <Project Path="Libraries/Iciclecreek.Azure.Storage.FileSystem/Iciclecreek.Azure.Storage.FileSystem.csproj" />
+    <Project Path="Libraries/Iciclecreek.Azure.Storage.Lucene/Iciclecreek.Azure.Storage.Lucene.csproj" />
     <Project Path="Libraries/Iciclecreek.Azure.Storage.Memory/Iciclecreek.Azure.Storage.Memory.csproj" />
     <Project Path="Libraries/Iciclecreek.Azure.Storage.OData/Iciclecreek.Azure.Storage.OData.csproj" />
     <Project Path="Libraries/Iciclecreek.Azure.Storage.Server/Iciclecreek.Azure.Storage.Server.csproj" />
@@ -8,12 +9,12 @@
   </Folder>
   <Folder Name="/Solution Items/">
     <File Path="../.github/workflows/BuildAndRunTests.yml" />
-    <File Path="../.github/workflows/PublishIncrementalNuget.yml" />
     <File Path="../.github/workflows/PublishNuget.yml" />
     <File Path="../README.md" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="Tests/Iciclecreek.Azure.Storage.FileSystem.Tests/Iciclecreek.Azure.Storage.FileSystem.Tests.csproj" />
+    <Project Path="Tests/Iciclecreek.Azure.Storage.Lucene.Tests/Iciclecreek.Azure.Storage.Lucene.Tests.csproj" />
     <Project Path="Tests/Iciclecreek.Azure.Storage.Memory.Tests/Iciclecreek.Azure.Storage.Memory.Tests.csproj" />
     <Project Path="Tests/Iciclecreek.Azure.Storage.Server.Tests/Iciclecreek.Azure.Storage.Server.Tests.csproj" />
     <Project Path="Tests/Iciclecreek.Azure.Storage.SQLite.Tests/Iciclecreek.Azure.Storage.SQLite.Tests.csproj" />

@@ -321,4 +321,143 @@ public abstract class QueueMessageTestsBase
         var diff = receipt.ExpirationTime - receipt.InsertionTime;
         Assert.That(diff.TotalDays, Is.EqualTo(7).Within(0.01));
     }
+
+    // ── Order: first in, first out ──────────────────────────────────────
+
+    [Test]
+    public void Receive_Returns_Messages_In_Send_Order()
+    {
+        var sent = Enumerable.Range(0, 60).Select(n => $"m{n:D3}").ToList();
+        foreach (var text in sent)
+            _client.SendMessage(text);
+
+        var received = new List<string>();
+        while (received.Count < sent.Count)
+        {
+            var batch = _client.ReceiveMessages(7, TimeSpan.FromSeconds(60)).Value;
+            Assert.That(batch, Is.Not.Empty, "the queue ran dry early");
+            received.AddRange(batch.Select(m => m.Body.ToString()));
+        }
+
+        Assert.That(received, Is.EqualTo(sent));
+    }
+
+    [Test]
+    public void Peek_Returns_Oldest_First()
+    {
+        var sent = Enumerable.Range(0, 20).Select(n => $"p{n:D2}").ToList();
+        foreach (var text in sent)
+            _client.SendMessage(text);
+
+        Assert.That(_client.PeekMessages(20).Value.Select(m => m.Body.ToString()), Is.EqualTo(sent));
+        Assert.That(_client.PeekMessage().Value.Body.ToString(), Is.EqualTo("p00"));
+    }
+
+    [Test]
+    public void A_Message_Whose_Visibility_Ran_Out_Keeps_Its_Place_In_Line()
+    {
+        _client.SendMessage("first");
+        _client.SendMessage("second");
+
+        // Taken and given back at once: it is the oldest again.
+        var taken = _client.ReceiveMessages(1, TimeSpan.Zero).Value.Single();
+        Assert.That(taken.Body.ToString(), Is.EqualTo("first"));
+
+        Assert.That(_client.ReceiveMessages(2, TimeSpan.FromSeconds(60)).Value.Select(m => m.Body.ToString()), Is.EqualTo(new[] { "first", "second" }));
+    }
+
+    // ── Time to live ────────────────────────────────────────────────────
+
+    [Test]
+    public void TimeToLive_MinusOne_Never_Expires()
+    {
+        var receipt = _client.SendMessage("for ever", timeToLive: TimeSpan.FromSeconds(-1)).Value;
+
+        Assert.That(receipt.ExpirationTime, Is.GreaterThan(DateTimeOffset.UtcNow.AddYears(100)));
+        Assert.That(_client.PeekMessages(1).Value.Select(m => m.Body.ToString()), Is.EqualTo(new[] { "for ever" }));
+        var received = _client.ReceiveMessages(1, TimeSpan.Zero).Value;
+        Assert.That(received.Select(m => m.Body.ToString()), Is.EqualTo(new[] { "for ever" }));
+        // Receiving must not have swept it away as expired.
+        Assert.That(_client.PeekMessages(1).Value, Has.Length.EqualTo(1));
+    }
+
+    // ── Pop receipts and visibility ─────────────────────────────────────
+
+    [Test]
+    public void The_Receipt_From_Send_Deletes_A_Message_Nobody_Has_Received()
+    {
+        var keep = _client.SendMessage("keep").Value;
+        var drop = _client.SendMessage("drop").Value;
+
+        _client.DeleteMessage(drop.MessageId, drop.PopReceipt);
+
+        Assert.That(_client.PeekMessages(10).Value.Select(m => m.Body.ToString()), Is.EqualTo(new[] { "keep" }));
+
+        // Once someone has received a message, the receipt from its send no longer works.
+        _client.ReceiveMessages(1, TimeSpan.FromSeconds(60));
+        var ex = Assert.Throws<RequestFailedException>(() => _client.DeleteMessage(keep.MessageId, keep.PopReceipt));
+        Assert.That(ex!.Status, Is.EqualTo(404));
+    }
+
+    [Test]
+    public void UpdateMessage_Extends_Visibility_And_Rotates_PopReceipt()
+    {
+        _client.SendMessage("working on it");
+        var received = _client.ReceiveMessages(1, TimeSpan.FromSeconds(1)).Value.Single();
+
+        var update = _client.UpdateMessage(received.MessageId, received.PopReceipt, visibilityTimeout: TimeSpan.FromSeconds(60)).Value;
+
+        Assert.That(update.PopReceipt, Is.Not.EqualTo(received.PopReceipt));
+        Assert.That(update.NextVisibleOn, Is.GreaterThan(DateTimeOffset.UtcNow.AddSeconds(30)));
+        // The earlier one-second hold has run out by now, but the extension keeps the message hidden.
+        Thread.Sleep(1200);
+        Assert.That(_client.ReceiveMessages(1).Value, Is.Empty);
+
+        var stale = Assert.Throws<RequestFailedException>(() => _client.DeleteMessage(received.MessageId, received.PopReceipt));
+        Assert.That(stale!.Status, Is.EqualTo(404));
+        _client.DeleteMessage(received.MessageId, update.PopReceipt);
+        Assert.That(_client.GetProperties().Value.ApproximateMessagesCount, Is.Zero);
+    }
+
+    [Test]
+    public void UpdateMessage_Zero_Visibility_Makes_Visible_Again_And_Counts_The_Next_Receive()
+    {
+        _client.SendMessage("give back");
+        var received = _client.ReceiveMessages(1, TimeSpan.FromSeconds(60)).Value.Single();
+        Assert.That(_client.ReceiveMessages(1).Value, Is.Empty);
+
+        _client.UpdateMessage(received.MessageId, received.PopReceipt, "given back", TimeSpan.Zero);
+
+        var again = _client.ReceiveMessages(1, TimeSpan.FromSeconds(60)).Value.Single();
+        Assert.That(again.MessageId, Is.EqualTo(received.MessageId));
+        Assert.That(again.Body.ToString(), Is.EqualTo("given back"));
+        Assert.That(again.DequeueCount, Is.EqualTo(2));
+    }
+
+    // ── Concurrency ─────────────────────────────────────────────────────
+
+    [Test]
+    public async Task Concurrent_Receivers_Never_Get_Same_Message()
+    {
+        const int total = 200;
+        for (var n = 0; n < total; n++)
+            _client.SendMessage($"c{n}");
+
+        var taken = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var receivers = Enumerable.Range(0, 8).Select(_ => Task.Run(async () =>
+        {
+            while (true)
+            {
+                var batch = (await _client.ReceiveMessagesAsync(3, TimeSpan.FromSeconds(120))).Value;
+                if (batch.Length == 0)
+                    return;
+                foreach (var message in batch)
+                    taken.Add(message.MessageId);
+            }
+        }));
+        await Task.WhenAll(receivers);
+
+        Assert.That(taken, Has.Count.EqualTo(total), "every message was handed out exactly once");
+        Assert.That(taken.Distinct().Count(), Is.EqualTo(total));
+    }
 }

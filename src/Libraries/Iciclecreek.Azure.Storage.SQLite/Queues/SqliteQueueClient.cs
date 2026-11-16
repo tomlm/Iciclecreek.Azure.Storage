@@ -290,7 +290,7 @@ public class SqliteQueueClient : QueueClient
         // Select visible messages
         using var selectCmd = conn.CreateCommand();
         selectCmd.Transaction = tx;
-        selectCmd.CommandText = "SELECT MessageId, PopReceipt, MessageText, InsertedOn, ExpiresOn, NextVisibleOn, DequeueCount FROM Messages WHERE QueueName = @queue AND NextVisibleOn <= @now ORDER BY InsertedOn LIMIT @max";
+        selectCmd.CommandText = "SELECT MessageId, PopReceipt, MessageText, InsertedOn, ExpiresOn, NextVisibleOn, DequeueCount FROM Messages WHERE QueueName = @queue AND NextVisibleOn <= @now ORDER BY InsertedOn, rowid LIMIT @max";
         selectCmd.Parameters.AddWithValue("@queue", _queueName);
         selectCmd.Parameters.AddWithValue("@now", now.ToString("O"));
         selectCmd.Parameters.AddWithValue("@max", max);
@@ -392,7 +392,7 @@ public class SqliteQueueClient : QueueClient
         using var conn = _serviceClient.Db.Open();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT MessageId, MessageText, DequeueCount, InsertedOn, ExpiresOn FROM Messages WHERE QueueName = @queue AND NextVisibleOn <= @now AND ExpiresOn > @now ORDER BY InsertedOn LIMIT @max";
+        cmd.CommandText = "SELECT MessageId, MessageText, DequeueCount, InsertedOn, ExpiresOn FROM Messages WHERE QueueName = @queue AND NextVisibleOn <= @now AND ExpiresOn > @now ORDER BY InsertedOn, rowid LIMIT @max";
         cmd.Parameters.AddWithValue("@queue", _queueName);
         cmd.Parameters.AddWithValue("@now", now.ToString("O"));
         cmd.Parameters.AddWithValue("@max", max);
