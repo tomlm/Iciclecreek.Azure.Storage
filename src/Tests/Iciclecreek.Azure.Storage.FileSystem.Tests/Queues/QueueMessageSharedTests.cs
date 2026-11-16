@@ -65,6 +65,47 @@ public class QueueMessageSharedTests : QueueMessageTestsBase
     }
 
     [Test]
+    public async Task A_Receive_Cancelled_While_It_Claims_A_Message_Leaves_The_Message_Whole()
+    {
+        // The token is cancelled at the moment the claim is being made: after the message file has
+        // been read and before it is written back.
+        using var cancellation = new CancellationTokenSource();
+        var cancelOnWrite = new CancelWhenATextIsWritten(cancellation);
+        var options = new FileStorageOptions();
+        options.JsonSerializerOptions.Converters.Add(cancelOnWrite);
+        var queue = new FileQueueServiceClient(_fixture.TempPath, options).GetQueueClient("msgq");
+        queue.SendMessage("survives");
+        var file = Directory.EnumerateFiles(MessagesFolder).Single();
+
+        cancelOnWrite.Armed = true;
+        var received = (await queue.ReceiveMessagesAsync(1, TimeSpan.FromSeconds(60), cancellation.Token)).Value;
+        cancelOnWrite.Armed = false;
+
+        Assert.That(cancellation.IsCancellationRequested, Is.True, "the cancellation arrived during the claim");
+        Assert.That(new FileInfo(file).Length, Is.GreaterThan(0), "the message file was not left empty");
+        Assert.That(received.Select(m => m.Body.ToString()), Is.EqualTo(new[] { "survives" }));
+        // The file holds the claim that was returned: its receipt deletes the message.
+        _client.DeleteMessage(received[0].MessageId, received[0].PopReceipt);
+        Assert.That(Directory.EnumerateFiles(MessagesFolder), Is.Empty);
+    }
+
+    /// <summary>Writes text as usual, but cancels first while it is armed.</summary>
+    private sealed class CancelWhenATextIsWritten(CancellationTokenSource cancellation) : System.Text.Json.Serialization.JsonConverter<string>
+    {
+        public bool Armed { get; set; }
+
+        public override string? Read(ref System.Text.Json.Utf8JsonReader reader, Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+            => reader.GetString();
+
+        public override void Write(System.Text.Json.Utf8JsonWriter writer, string value, System.Text.Json.JsonSerializerOptions options)
+        {
+            if (Armed)
+                cancellation.Cancel();
+            writer.WriteStringValue(value);
+        }
+    }
+
+    [Test]
     public void A_Message_Written_By_An_Earlier_Version_Is_Still_Delivered_And_Deleted()
     {
         // Earlier versions named a message file by a bare GUID.

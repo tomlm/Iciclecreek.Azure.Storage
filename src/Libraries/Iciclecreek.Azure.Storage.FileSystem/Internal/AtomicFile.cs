@@ -134,7 +134,9 @@ internal static class AtomicFile
                         // No byte-order mark: the file must read back exactly as the text written.
                         using (var writer = new StreamWriter(fs, new System.Text.UTF8Encoding(false), 4096, leaveOpen: true))
                         {
-                            await writer.WriteAsync(newText.AsMemory(), ct).ConfigureAwait(false);
+                            // Not cancellable: the file is empty at this point, so stopping here would
+                            // destroy the content rather than leave it unchanged.
+                            await writer.WriteAsync(newText.AsMemory(), CancellationToken.None).ConfigureAwait(false);
                             await writer.FlushAsync().ConfigureAwait(false);
                         }
                     }
