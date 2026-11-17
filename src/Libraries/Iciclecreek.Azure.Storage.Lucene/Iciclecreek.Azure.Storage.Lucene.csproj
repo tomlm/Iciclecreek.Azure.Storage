@@ -48,6 +48,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Iciclecreek.Azure.Storage.Lucene.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Iciclecreek.Azure.Storage.Internal" />
     <Using Include="Iciclecreek.Azure.Storage.OData" />
   </ItemGroup>

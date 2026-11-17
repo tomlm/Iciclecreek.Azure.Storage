@@ -100,6 +100,10 @@ Each table, container and queue is a Lucene `Directory` of its own. Given a fold
     __registry__      the list of queues and their metadata
 ```
 
+### Long paths on Windows
+
+Given a folder, the clients open each `FSDirectory` by its extended path (`\\?\C:\…`, or `\\?\UNC\server\share\…`), so a folder can be as deep as you like. That matters because Lucene.Net syncs each file it writes through its own call to Windows, which fails past 260 characters unless the program's manifest declares it long-path aware. An ordinary .NET program does not, and a queued message's file name alone is over 100 characters. If you pass your own factory of `FSDirectory` objects, open them the same way: `FSDirectory.Open(@"\\?\" + Path.GetFullPath(path))`.
+
 ### Names
 
 A name made of lowercase letters, digits and hyphens is its own directory name. Anything else is made safe first, so that two names never share a directory and no name can point outside the folder:

@@ -34,7 +34,7 @@ public class LuceneTableServiceClient : TableServiceClient, IDisposable
     }
 
     /// <summary>Tables in folders under <paramref name="rootPath"/>: <c>tables/{table}</c> for each.</summary>
-    public LuceneTableServiceClient(string rootPath) : this(InFolder(rootPath))
+    public LuceneTableServiceClient(string rootPath) : this(FolderPaths.InFolder(rootPath))
     {
     }
 
@@ -55,14 +55,6 @@ public class LuceneTableServiceClient : TableServiceClient, IDisposable
     {
         var directories = new ConcurrentDictionary<string, LuceneDirectory>(StringComparer.Ordinal);
         return path => directories.GetOrAdd(path, _ => new RAMDirectory());
-    }
-
-    private static Func<string, LuceneDirectory> InFolder(string rootPath)
-    {
-        if (string.IsNullOrWhiteSpace(rootPath))
-            throw new ArgumentException("A folder is needed.", nameof(rootPath));
-        var root = Path.GetFullPath(rootPath);
-        return path => FSDirectory.Open(Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar)));
     }
 
     /// <summary>Closes the directories the tables are kept in.</summary>

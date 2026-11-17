@@ -37,7 +37,7 @@ public sealed class LuceneBlobServiceClient : BlobServiceClient, IDisposable
     }
 
     /// <summary>Blobs in folders under <paramref name="rootPath"/>, one folder per container.</summary>
-    public LuceneBlobServiceClient(string rootPath) : this(InFolder(rootPath))
+    public LuceneBlobServiceClient(string rootPath) : this(FolderPaths.InFolder(rootPath))
     {
     }
 
@@ -54,14 +54,6 @@ public sealed class LuceneBlobServiceClient : BlobServiceClient, IDisposable
     {
         var directories = new ConcurrentDictionary<string, LuceneDirectory>(StringComparer.Ordinal);
         return path => directories.GetOrAdd(path, _ => new RAMDirectory());
-    }
-
-    private static Func<string, LuceneDirectory> InFolder(string rootPath)
-    {
-        if (string.IsNullOrWhiteSpace(rootPath))
-            throw new ArgumentException("A folder is needed.", nameof(rootPath));
-        var root = Path.GetFullPath(rootPath);
-        return path => FSDirectory.Open(Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar)));
     }
 
     // The container's name is made safe as a folder name, so that containers whose names differ only
