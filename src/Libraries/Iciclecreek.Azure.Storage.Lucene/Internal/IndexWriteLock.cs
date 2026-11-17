@@ -107,8 +107,9 @@ internal static class IndexWriteLock
     public static WriteGate GateFor(LuceneDirectory directory) =>
         directory is FSDirectory inFolder
             // Compared without case, as most file systems do; where case does matter, two folders
-            // sharing a gate only costs them some waiting.
-            ? s_gatesByFolder.GetOrAdd(inFolder.Directory.FullName, _ => new WriteGate())
+            // sharing a gate only costs them some waiting. A folder opened by its extended path
+            // (\\?\C:\…) is the same folder as by its plain one.
+            ? s_gatesByFolder.GetOrAdd(FolderPaths.WithoutExtended(inFolder.Directory.FullName), _ => new WriteGate())
             : s_gatesByDirectory.GetValue(directory, _ => new WriteGate());
 
     /// <summary>
