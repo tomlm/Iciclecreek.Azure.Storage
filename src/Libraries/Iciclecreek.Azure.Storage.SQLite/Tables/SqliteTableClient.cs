@@ -427,12 +427,12 @@ public class SqliteTableClient : TableClient
         }
         catch (RequestFailedException ex)
         {
-            tx.Rollback();
+            RollBack(tx);
             throw new TableTransactionFailedException(ex);
         }
         catch (Exception ex)
         {
-            tx.Rollback();
+            RollBack(tx);
             throw new RequestFailedException(500, ex.Message, null, ex);
         }
 
@@ -652,6 +652,16 @@ public class SqliteTableClient : TableClient
     // ---- Column Management ----
 
     private string ColumnCacheKey => $"{_serviceClient.Db.DbPath}:{_tableName}";
+
+    /// <summary>
+    /// Rolls a transaction back, and forgets the table's known columns: a column the transaction
+    /// added (ALTER TABLE inside it) is gone again, and a later write must add it once more.
+    /// </summary>
+    private void RollBack(SqliteTransaction tx)
+    {
+        tx.Rollback();
+        s_columnCache.TryRemove(ColumnCacheKey, out _);
+    }
 
     private HashSet<string> GetKnownColumns(SqliteConnection conn)
     {
