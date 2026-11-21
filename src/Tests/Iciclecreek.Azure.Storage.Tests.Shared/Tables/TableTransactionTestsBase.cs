@@ -39,6 +39,33 @@ public abstract class TableTransactionTestsBase
         Assert.That(client.GetEntity<TableEntity>("pk", "r2").Value["V"]?.ToString(), Is.EqualTo("2"));
     }
 
+    // ── A refused transaction that brought a new property ───────────────
+
+    [Test]
+    public async Task AfterARefusedTransaction_ANewPropertyCanStillBeWritten_Async()
+    {
+        var client = _fixture.CreateTableClient("txnewprop");
+        await client.CreateIfNotExistsAsync();
+        await client.AddEntityAsync(new TableEntity("pk", "r1") { ["V"] = "1" });
+        await client.AddEntityAsync(new TableEntity("pk", "r2") { ["V"] = "2" });
+        var r1 = (await client.GetEntityAsync<TableEntity>("pk", "r1")).Value;
+        var r2 = (await client.GetEntityAsync<TableEntity>("pk", "r2")).Value;
+        // r2 changes, so the transaction's condition on it fails.
+        await client.UpdateEntityAsync(new TableEntity("pk", "r2") { ["V"] = "changed" }, r2.ETag, TableUpdateMode.Replace);
+
+        // Both bring a property the table has never had; the transaction is refused and undone.
+        var actions = new[]
+        {
+            new TableTransactionAction(TableTransactionActionType.UpdateReplace, new TableEntity("pk", "r1") { ["V"] = "1", ["Brand_new"] = "x" }, r1.ETag),
+            new TableTransactionAction(TableTransactionActionType.UpdateReplace, new TableEntity("pk", "r2") { ["V"] = "2", ["Brand_new"] = "y" }, r2.ETag),
+        };
+        Assert.ThrowsAsync<TableTransactionFailedException>(() => client.SubmitTransactionAsync(actions));
+
+        // Writing the same property again, outside a transaction, works.
+        await client.UpdateEntityAsync(new TableEntity("pk", "r1") { ["V"] = "1", ["Brand_new"] = "x" }, r1.ETag, TableUpdateMode.Replace);
+        Assert.That((await client.GetEntityAsync<TableEntity>("pk", "r1")).Value["Brand_new"]?.ToString(), Is.EqualTo("x"));
+    }
+
     [Test]
     public async Task SubmitTransaction_All_Succeed_Async()
     {
