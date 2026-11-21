@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Version>2.1.0</Version>
+    <Version>2.1.1</Version>
     <AssemblyVersion>2.1.0.0</AssemblyVersion>
     <Description>Drop-in replacements for the Azure.Data.Tables, Azure.Storage.Blobs and Azure.Storage.Queues SDK clients that keep their data through the Lucene.NET Directory abstraction: each table, container and queue is a Lucene Directory of its own.</Description>
     <Company>Iciclecreek</Company>
